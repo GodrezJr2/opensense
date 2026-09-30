@@ -51,7 +51,7 @@ internal static class CpuTemperatureSensor
     public static int DefaultLimit() =>
         X86Base.IsSupported && Vendor() == "AuthenticAMD" ? ThermalLimits.AmdCpuDefault : ThermalLimits.IntelCpuDefault;
 
-    private static string Vendor()
+    internal static string Vendor()
     {
         var (_, ebx, ecx, edx) = X86Base.CpuId(0, 0);
         ReadOnlySpan<int> parts = [ebx, edx, ecx];

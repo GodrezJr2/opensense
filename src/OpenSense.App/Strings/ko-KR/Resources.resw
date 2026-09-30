@@ -513,6 +513,9 @@
     <value>시스템 온도</value>
     <comment>Caption: the laptop's internal temperature.</comment>
   </data>
+  <data name="Dashboard_TotalPower.Text" xml:space="preserve">
+    <value>CPU + GPU power</value>
+  </data>
   <data name="Fans_Title.Text" xml:space="preserve">
     <value>팬</value>
     <comment>Page title.</comment>

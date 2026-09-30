@@ -97,6 +97,18 @@ public sealed partial class MonitorViewModel : ObservableObject
     public partial double? GpuLoad { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CpuPowerText), nameof(HasCpuPower))]
+    public partial double? CpuPower { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuPowerText), nameof(HasGpuPower))]
+    public partial double? GpuPower { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotalPowerText), nameof(HasTotalPower))]
+    public partial double? TotalPower { get; set; }
+
+    [ObservableProperty]
     public partial Telemetry? Latest { get; set; }
 
     [ObservableProperty]
@@ -131,6 +143,18 @@ public sealed partial class MonitorViewModel : ObservableObject
 
     public string GpuLoadText => Units.Percent(GpuLoad);
 
+    public string CpuPowerText => Units.Watts(CpuPower);
+
+    public string GpuPowerText => Units.Watts(GpuPower);
+
+    public string TotalPowerText => Units.Watts(TotalPower);
+
+    public bool HasCpuPower => CpuPower is not null;
+
+    public bool HasGpuPower => GpuPower is not null;
+
+    public bool HasTotalPower => TotalPower is not null;
+
     public string UnitSymbol => UseFahrenheit ? "°F" : "°C";
 
     partial void OnUseFahrenheitChanged(bool value)
@@ -163,6 +187,9 @@ public sealed partial class MonitorViewModel : ObservableObject
         GpuAsleep = t.GpuAsleep;
         CpuLoad = t.CpuLoad;
         GpuLoad = t.GpuLoad;
+        CpuPower = t.CpuPower;
+        GpuPower = t.GpuPower;
+        TotalPower = t.TotalPower;
         SystemTemperature = t.SystemTemperature;
 
         CpuTemperature = t.CpuTemperature;
