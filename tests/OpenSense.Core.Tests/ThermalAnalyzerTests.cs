@@ -119,6 +119,77 @@ public sealed class ThermalAnalyzerTests
     }
 
     [Fact]
+    public void A_short_spike_to_the_limit_is_not_a_thermal_wall()
+    {
+        // A shader compile: 4 s at 100 °C (and thermal throttling) in a 120 s run that otherwise sits at 70.
+        var report = ThermalAnalyzer.Analyze(Run(120, (i, s) => i is >= 50 and < 54
+            ? s with { CpuTemperature = 100, CpuThrottle = CpuThrottleReason.Thermal }
+            : s));
+
+        Assert.NotEqual("thermal-limited", report.Verdict);
+        var spike = Assert.Single(report.Findings, f => f.Code == "thermal-spike");
+        Assert.Equal(Severity.Notice, spike.Severity);
+        Assert.Equal(70, report.Cpu.TemperatureMedian);
+        Assert.Equal(100, report.Cpu.TemperatureMax);
+        var episode = Assert.Single(report.ThrottleEpisodes);
+        Assert.Equal(("CPU", "thermal", 50.0, 4.0), (episode.Chip, episode.Kind, episode.StartSeconds, episode.DurationSeconds));
+    }
+
+    [Fact]
+    public void Long_stretches_at_the_limit_are_a_thermal_wall_even_without_the_throttle_flag()
+    {
+        var report = ThermalAnalyzer.Analyze(Run(120, (i, s) => i >= 60 ? s with { CpuTemperature = 99 } : s));
+
+        Assert.Equal("thermal-limited", report.Verdict);
+        var finding = Assert.Single(report.Findings, f => f.Code == "near-limit");
+        Assert.Equal(60, report.Cpu.SecondsNearLimit);
+        Assert.Equal(60, report.Cpu.LongestNearLimitSeconds);
+        Assert.Contains("60 s", finding.Evidence);
+    }
+
+    [Fact]
+    public void Sitting_close_under_the_limit_without_throttling_is_running_hot()
+    {
+        var report = ThermalAnalyzer.Analyze(Run(60, (_, s) => s with { CpuTemperature = 92 }));
+
+        Assert.Equal("running-hot", report.Verdict);
+        Assert.Contains(report.Findings, f => f.Code == "hot");
+    }
+
+    [Fact]
+    public void The_summary_says_where_the_chip_sits_not_just_the_peak()
+    {
+        var report = ThermalAnalyzer.Analyze(Run(100, (i, s) => s with { CpuTemperature = 60 + i % 10, CpuPower = 50 + i % 5, CpuClockMhz = 4000 }));
+
+        Assert.Equal(64.5, report.Cpu.TemperatureMedian);
+        Assert.Equal(69, report.Cpu.Temperature95th!.Value, 0);
+        Assert.Equal(69, report.Cpu.TemperatureMax);
+        Assert.Equal(52, report.Cpu.PowerMedianW);
+        Assert.Equal(52, report.Cpu.LoadedPowerMedianW);
+        Assert.Equal(4000, report.Cpu.LoadedClockMedianMhz);
+        Assert.Equal(1.0, report.Cpu.TemperatureBands.Values.Sum(), 2);
+        Assert.Equal(1.0, report.Cpu.TemperatureBands["30+ under limit"], 2);
+    }
+
+    [Fact]
+    public void The_timeline_shows_a_change_over_the_run()
+    {
+        var report = ThermalAnalyzer.Analyze(Run(80, (i, s) => s with { CpuTemperature = 60 + i / 2.0, CpuPower = i < 40 ? 120 : 60 }));
+
+        Assert.Equal(8, report.Timeline.Count);
+        Assert.True(report.Timeline[^1].CpuTemperatureC > report.Timeline[0].CpuTemperatureC);
+        Assert.Equal(120, report.Timeline[0].CpuPowerW);
+        Assert.Equal(60, report.Timeline[^1].CpuPowerW);
+        Assert.Equal(0, report.Timeline[0].StartSeconds);
+    }
+
+    [Fact]
+    public void Gpu_reasons_the_model_does_not_know_are_still_named()
+    {
+        Assert.Equal(["other (0x1000)"], GpuThrottle.Describe(0x1000));
+    }
+
+    [Fact]
     public void Decoding_the_package_status_register()
     {
         Assert.Equal(CpuThrottleReason.None, IntelPackageSensor.DecodeThrottle(0));

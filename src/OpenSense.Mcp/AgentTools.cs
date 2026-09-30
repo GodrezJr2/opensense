@@ -18,7 +18,9 @@ public sealed class AgentTools(IAgentSource source)
         "OpenSense reads a gaming laptop's sensors. Use machine_info once for what the hardware is, analyze_thermals for " +
         "'is it throttling / hitting the thermal wall / power limited', current_status for a live reading, and recent_history " +
         "for a time series. To diagnose a workload: have the user run it (for example in Turbo mode), then call analyze_thermals " +
-        "with seconds covering the run. Terms: PL1 is the CPU's sustained power limit and PL2 its short boost limit, both set " +
+        "with seconds covering the run. Judge by where the chips SIT (median and 95th percentile, time near the limit, the " +
+        "timeline and throttle episodes), not by the peak: a short spike to the limit is usually shader compilation or loading, " +
+        "and the report separates it from a sustained problem. Terms: PL1 is the CPU's sustained power limit and PL2 its short boost limit, both set " +
         "by the operating mode; 'power-limited' means clocks are held by a power limit, 'thermal-limited' means by temperature; " +
         "a GPU 'power cap' under full load is normal on laptops. These tools are read-only and cannot change any setting.";
 
