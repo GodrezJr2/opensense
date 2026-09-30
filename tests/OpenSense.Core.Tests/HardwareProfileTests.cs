@@ -63,8 +63,11 @@ public sealed class HardwareProfileTests
     [Fact]
     public void Says_where_the_laptops_gpu_power_limit_sits_in_the_models_range()
     {
-        Assert.Contains("top of the range", HardwareProfiler.Describe(Input(tgp: 113.6)).Gpu!.PowerNote);
-        Assert.Contains("low end", HardwareProfiler.Describe(Input(tgp: 45)).Gpu!.PowerNote);
+        var top = HardwareProfiler.Describe(Input(tgp: 140) with { GpuEnforcedPowerW = 113.6 }).Gpu!.PowerNote;
+        Assert.Contains("Dynamic Boost", top);
+        Assert.Contains("top of the range", top);
+        Assert.Contains("limited to 114 W right now", top);
+        Assert.Contains("low end", HardwareProfiler.Describe(Input(tgp: 60)).Gpu!.PowerNote);
     }
 
     [Theory]

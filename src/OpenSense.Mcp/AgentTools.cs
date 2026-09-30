@@ -92,7 +92,7 @@ public sealed class AgentTools(IAgentSource source)
         return HardwareProfiler.Describe(new ProfileInput(
             snapshot.DeviceName, snapshot.CpuName, snapshot.GpuName, physical, logical ?? Environment.ProcessorCount,
             t?.CpuBasePowerW, t?.CpuPowerLimit1, t?.CpuPowerLimit2, t?.GpuPowerLimitMax, t?.GpuPowerLimitDefault, t?.GpuMemoryGb,
-            snapshot.Capabilities.Fans.Count, Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024.0 / 1024 / 1024, 1)));
+            snapshot.Capabilities.Fans.Count, Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024.0 / 1024 / 1024, 1), t?.GpuPowerLimit));
     }
 
     private static (int? Physical, int? Logical) CpuCores()

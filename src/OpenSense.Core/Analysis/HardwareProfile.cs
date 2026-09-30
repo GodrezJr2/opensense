@@ -16,7 +16,8 @@ public sealed record ProfileInput(
     double? GpuDefaultPowerW,
     double? GpuMemoryGb,
     int FanCount,
-    double? MemoryGb);
+    double? MemoryGb,
+    double? GpuEnforcedPowerW = null);
 
 /// <summary>A usual range of temperatures for this class of chip under sustained load (a rule of thumb, not a measurement).</summary>
 public sealed record TypicalRange(double LowC, double HighC);
@@ -147,11 +148,16 @@ public static partial class HardwareProfiler
             var step = model % 100;
             family = $"GeForce RTX {model / 100}0-series" + (name.Contains("Laptop", StringComparison.OrdinalIgnoreCase) ? " Laptop" : "");
             tier = step switch { <= 50 => "entry", 60 => "mainstream", 70 => "upper-mainstream", 80 => "high-end", _ => "enthusiast" };
-            if (model / 100 == 40 && input.GpuMaxPowerW is { } tgp)
+            if (model / 100 == 40 && step <= 70 && input.GpuMaxPowerW is { } ceiling)
             {
-                var (low, high) = step <= 70 ? (35, 115) : step == 80 ? (60, 150) : (80, 150);
-                note = $"Laptop RTX 40 cards of this model run {low}-{high} W depending on the laptop; this one allows up to {tgp:0} W"
-                    + (tgp >= high - 10 ? ", the top of the range." : tgp <= low + 25 ? ", the low end of the range." : ".");
+                // RTX 4050/4060/4070 laptops: 35-115 W graphics power, plus up to 25 W Dynamic Boost, depending on the laptop.
+                note = $"Laptop RTX {model} cards run 35-115 W of graphics power plus up to 25 W Dynamic Boost, depending on the laptop; this one's driver allows up to {ceiling:0} W"
+                    + (ceiling >= 135 ? ", the top of the range." : ceiling <= 75 ? ", the low end of the range." : ".")
+                    + (input.GpuEnforcedPowerW is { } now ? $" It is limited to {now:0} W right now." : "");
+            }
+            else if (input.GpuMaxPowerW is { } max)
+            {
+                note = $"The driver allows up to {max:0} W" + (input.GpuEnforcedPowerW is { } enforced ? $", and limits it to {enforced:0} W right now." : ".");
             }
         }
         return new GpuProfile(input.GpuName, family, tier, input.GpuMaxPowerW, input.GpuDefaultPowerW, input.GpuMemoryGb, note,
