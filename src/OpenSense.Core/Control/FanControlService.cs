@@ -49,7 +49,9 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
     // Last sensor sample.
     private DateTime _lastSample = DateTime.MinValue;
-    private double? _cpuTemp, _gpuTemp, _systemTemp, _cpuLoad, _gpuLoad, _cpuWatts, _gpuWatts;
+    private double? _cpuTemp, _gpuTemp, _systemTemp, _cpuLoad, _gpuLoad, _cpuWatts, _gpuWatts, _cpuClock, _cpuPl1, _cpuPl2;
+    private CpuThrottleReason _cpuThrottle;
+    private GpuStatus? _gpuStatus;
     private bool _gpuAsleep;
     private bool? _gpuOn;
     private TemperatureOrigin _cpuOrigin, _gpuOrigin;
@@ -324,6 +326,14 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             GpuLoad = _gpuLoad,
             CpuPower = _cpuWatts,
             GpuPower = _gpuWatts,
+            CpuClockMhz = _cpuClock,
+            CpuThrottle = _cpuThrottle,
+            CpuPowerLimit1 = _cpuPl1,
+            CpuPowerLimit2 = _cpuPl2,
+            GpuClockMhz = _gpuStatus?.CoreMhz,
+            GpuMemoryClockMhz = _gpuStatus?.MemoryMhz,
+            GpuThrottleReasons = _gpuStatus?.ThrottleReasons,
+            GpuPowerLimit = _gpuStatus?.PowerLimitWatts,
             // Fans OpenSense can't drive are always on the firmware's own control.
             Fans = Capabilities.Fans.Select(f => new FanTelemetry(
                 f.Id,
@@ -352,6 +362,8 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         _cpuOrigin = cpu is null ? TemperatureOrigin.Firmware : TemperatureOrigin.Processor;
         _cpuTemp = cpu ?? (Capabilities.Has(SensorId.CpuTemperature) && _device.ReadSensor(SensorId.CpuTemperature) is > 0 and var c ? c : null);
         _cpuWatts = _direct.CpuWatts?.Read();
+        (_cpuPl1, _cpuPl2) = _direct.CpuWatts?.Limits ?? (null, null);
+        _cpuThrottle = _direct.Cpu?.Throttle ?? CpuThrottleReason.None;
 
         var firmwareGpu = Capabilities.Has(SensorId.GpuTemperature);
         if (firmwareGpu || _direct.Gpu is not null)
@@ -364,6 +376,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             // Asking the driver while the GPU is off could wake it.
             var gpu = on == true ? _direct.Gpu?.Read() : null;
             _gpuWatts = on == true ? _direct.GpuWatts?.Read() : null;
+            _gpuStatus = on == true ? _direct.GpuStatusSensor?.Read() : null;
             _gpuOrigin = gpu is null ? TemperatureOrigin.Firmware : TemperatureOrigin.GpuDriver;
             _gpuTemp = gpu ?? (g > 0 ? g : null);
             _gpuAsleep = on == false && _gpuTemp is null;
@@ -387,6 +400,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         }
 
         (_cpuLoad, _gpuLoad) = _load.Sample();
+        _cpuClock = _load.CpuFrequencyMhz;
     }
 
     /// <summary>

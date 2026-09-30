@@ -30,6 +30,9 @@ public partial interface IOpenSenseService
 
     Task<EngineSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>The telemetry samples of the last <paramref name="seconds"/> (up to an hour), oldest first.</summary>
+    Task<IReadOnlyList<Telemetry>> GetHistoryAsync(int seconds, CancellationToken cancellationToken = default);
+
     Task SetProfileAsync(ControlProfile profile, CancellationToken cancellationToken = default);
 
     Task SetKeyboardAsync(KeyboardSettings keyboard, CancellationToken cancellationToken = default);

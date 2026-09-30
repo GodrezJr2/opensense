@@ -10,6 +10,9 @@ public interface ILoadMonitor : IDisposable
 
     /// <summary>CPU and discrete-GPU utilisation in percent, sampled since the previous call.</summary>
     (double? Cpu, double? Gpu) Sample();
+
+    /// <summary>The CPU's effective clock in MHz as of the last <see cref="Sample"/> (nominal frequency times Windows' performance percentage); null where Windows doesn't say.</summary>
+    double? CpuFrequencyMhz => null;
 }
 
 /// <summary>CPU load from "% Processor Utility" (matches Task Manager), GPU load from "GPU Engine" 3D counters.</summary>
@@ -18,16 +21,22 @@ public sealed partial class LoadMonitor : ILoadMonitor
     private readonly PdhQuery _query = new();
     private readonly PDH_HCOUNTER? _cpu;
     private readonly PDH_HCOUNTER? _gpu3d;
+    private readonly PDH_HCOUNTER? _frequency;
+    private readonly PDH_HCOUNTER? _performance;
     private readonly GpuAdapter? _discrete;
 
     public string? CpuName { get; }
     public string? GpuName => _discrete?.Name;
+
+    public double? CpuFrequencyMhz { get; private set; }
 
     public LoadMonitor()
     {
         _cpu = _query.Add(@"\Processor Information(_Total)\% Processor Utility")
             ?? _query.Add(@"\Processor(_Total)\% Processor Time");
         _gpu3d = _query.Add(@"\GPU Engine(*engtype_3D)\Utilization Percentage");
+        _frequency = _query.Add(@"\Processor Information(_Total)\Processor Frequency");
+        _performance = _query.Add(@"\Processor Information(_Total)\% Processor Performance");
         _discrete = GpuAdapters.FindDiscrete(GpuAdapters.TryEnumerate());
         CpuName = ReadCpuName();
         _query.Collect(); // rate counters need a baseline sample
@@ -39,6 +48,9 @@ public sealed partial class LoadMonitor : ILoadMonitor
             return (null, null);
 
         double? cpu = _cpu is { } c && PdhQuery.Value(c) is { } v ? Math.Clamp(v, 0, 100) : null;
+        CpuFrequencyMhz = _frequency is { } f && _performance is { } p && PdhQuery.Value(f) is { } mhz && PdhQuery.Value(p) is { } percent && mhz > 0
+            ? mhz * percent / 100
+            : null;
         return (cpu, SampleGpu());
     }
 

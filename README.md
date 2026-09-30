@@ -47,6 +47,25 @@ Help translate OpenSense and this page into your language: see [Translations](#t
 
 OpenSense asks the firmware what your laptop has and shows only what it supports.
 
+## AI agents
+
+OpenSense ships `OpenSense.Mcp.exe`, a [Model Context Protocol](https://modelcontextprotocol.io) server, so an AI agent (Claude Code, Codex and others) can look at your laptop while you run a workload and tell you whether it is hitting a thermal wall, a power limit or saturated cooling.
+
+```powershell
+claude mcp add opensense -- "C:\Program Files\OpenSense\OpenSense.Mcp.exe"
+```
+
+Other agents take the same command in their MCP settings (`command` = the path above, no arguments). Then run your game or benchmark and ask, for example, *"I just ran Turbo for ten minutes, is my laptop throttling?"*
+
+| Tool | What it gives the agent |
+| --- | --- |
+| `machine_info` | Model, BIOS, CPU, GPU, memory, OS, operating modes, fans, thermal limits, current settings |
+| `current_status` | The latest reading: temperatures, loads, CPU and GPU watts, clocks, PL1/PL2, throttle reasons, fan RPM, mode, power source |
+| `recent_history` | A time series of the last minutes (up to an hour), for trends |
+| `analyze_thermals` | A verdict (healthy, warm, power-limited, thermal-limited) with findings and the numbers behind each |
+
+The server is **read-only**: it cannot change a fan, mode or light, and it only talks to the OpenSense service on this PC over its local pipe. It needs the OpenSense service running (the installer sets that up).
+
 ## Installation
 
 Download the latest version from [**Releases**](https://github.com/archivesteak/opensense/releases/latest) (Windows 10 2004 or later, 64-bit):

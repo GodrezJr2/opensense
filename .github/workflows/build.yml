@@ -55,6 +55,7 @@ jobs:
                          '-p:Version=${{ steps.version.outputs.value }}', '-o', $env:PUBLISH_DIR
           dotnet publish src/OpenSense.App @publishArgs
           dotnet publish src/OpenSense.Service @publishArgs
+          dotnet publish src/OpenSense.Mcp @publishArgs
 
       - name: Download PawnIO setup
         run: |

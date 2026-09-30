@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>OpenSense.Mcp</AssemblyName>
+    <RootNamespace>OpenSense.Mcp</RootNamespace>
+    <ApplicationIcon>..\OpenSense.App\Assets\OpenSense.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenSense.Core\OpenSense.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -8,6 +8,9 @@ public interface IPowerSensor : IDisposable
 {
     /// <summary>Watts, or null when there is no reading (yet).</summary>
     double? Read();
+
+    /// <summary>The sustained (PL1) and short-burst (PL2) power limits in watts, where the chip tells them.</summary>
+    (double? Pl1, double? Pl2) Limits => (null, null);
 }
 
 /// <summary>
@@ -19,18 +22,28 @@ internal sealed class IntelPackagePower : IPowerSensor
 {
     private const ulong PowerUnit = 0x606;    // MSR_RAPL_POWER_UNIT; bits 12:8 = energy unit, 1/2^n joule
     private const ulong PackageEnergy = 0x611; // MSR_PKG_ENERGY_STATUS; bits 31:0 = counter, wraps
+    private const ulong PackagePowerLimit = 0x610; // MSR_PKG_POWER_LIMIT; bits 14:0 = PL1, 46:32 = PL2, in power units
 
     private readonly PawnIOModule _module;
     private readonly double _joulesPerCount;
+    private readonly double _wattsPerUnit;
     private uint _previous;
     private long _previousTicks;
     private bool _primed;
 
-    private IntelPackagePower(PawnIOModule module, double joulesPerCount)
+    private IntelPackagePower(PawnIOModule module, double joulesPerCount, double wattsPerUnit)
     {
         _module = module;
         _joulesPerCount = joulesPerCount;
+        _wattsPerUnit = wattsPerUnit;
     }
+
+    public (double? Pl1, double? Pl2) Limits =>
+        _module.Call("ioctl_read_msr", PackagePowerLimit) is { } limits
+            ? (LimitWatts((int)(limits & 0x7FFF)), LimitWatts((int)((limits >> 32) & 0x7FFF)))
+            : (null, null);
+
+    private double? LimitWatts(int units) => units > 0 ? units * _wattsPerUnit : null;
 
     public static IPowerSensor? TryOpen()
     {
@@ -38,13 +51,14 @@ internal sealed class IntelPackagePower : IPowerSensor
             return null;
         if (PawnIOModule.TryOpen("IntelMSR", null) is not { } module)
             return null;
-        var bits = module.Call("ioctl_read_msr", PowerUnit) is { } unit ? (int)((unit >> 8) & 0x1F) : 0;
+        var unit = module.Call("ioctl_read_msr", PowerUnit) ?? 0;
+        var bits = (int)((unit >> 8) & 0x1F);
         if (bits == 0)
         {
             module.Dispose();
             return null;
         }
-        var sensor = new IntelPackagePower(module, 1.0 / (1L << bits));
+        var sensor = new IntelPackagePower(module, 1.0 / (1L << bits), 1.0 / (1L << (int)(unit & 0xF)));
         sensor.Read(); // the first reading has nothing to compare with; it only tells whether the counter answers
         if (sensor._primed)
             return sensor;

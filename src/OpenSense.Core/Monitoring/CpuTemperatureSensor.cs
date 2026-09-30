@@ -18,6 +18,9 @@ public interface ITemperatureSensor : IDisposable
     /// hasn't been asked yet). Kept up to date by <see cref="Read"/>.
     /// </summary>
     int? Limit => null;
+
+    /// <summary>Why the chip is holding itself back as of the last <see cref="Read"/>; none where the sensor can't tell.</summary>
+    CpuThrottleReason Throttle => CpuThrottleReason.None;
 }
 
 /// <summary>
@@ -82,6 +85,8 @@ internal sealed class IntelPackageSensor : ITemperatureSensor
 
     public int? Limit { get; private set; }
 
+    public CpuThrottleReason Throttle { get; private set; }
+
     public static ITemperatureSensor? TryOpen(Action<SensorProblem, string?>? fail)
     {
         // CPUID.06H:EAX[6]: package thermal management, i.e. IA32_PACKAGE_THERM_STATUS exists.
@@ -116,8 +121,28 @@ internal sealed class IntelPackageSensor : ITemperatureSensor
             return null;
         if (_module.Call("ioctl_read_msr", TemperatureTarget) is { } target)
             Limit = _tjMax - (int)((target >> 24) & 0x3F);
+        Throttle = DecodeThrottle(status);
         var celsius = _tjMax - (int)((status >> 16) & 0x7F);
         return celsius > 0 ? celsius : null;
+    }
+
+    /// <summary>The status bits of IA32_PACKAGE_THERM_STATUS: thermal (0), PROCHOT (2), critical (4), power limit (10), current limit (12), cross-domain (14).</summary>
+    internal static CpuThrottleReason DecodeThrottle(ulong status)
+    {
+        var flags = CpuThrottleReason.None;
+        if ((status & (1UL << 0)) != 0)
+            flags |= CpuThrottleReason.Thermal;
+        if ((status & (1UL << 2)) != 0)
+            flags |= CpuThrottleReason.Prochot;
+        if ((status & (1UL << 4)) != 0)
+            flags |= CpuThrottleReason.Critical;
+        if ((status & (1UL << 10)) != 0)
+            flags |= CpuThrottleReason.PowerLimit;
+        if ((status & (1UL << 12)) != 0)
+            flags |= CpuThrottleReason.CurrentLimit;
+        if ((status & (1UL << 14)) != 0)
+            flags |= CpuThrottleReason.CrossDomain;
+        return flags;
     }
 
     public void Dispose() => _module.Dispose();

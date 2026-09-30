@@ -52,6 +52,27 @@ public sealed record Telemetry
     /// <summary>The GPU board's power draw in watts; null where it can't be read or while the GPU sleeps.</summary>
     public double? GpuPower { get; init; }
 
+    /// <summary>The CPU's effective clock in MHz (nominal frequency times Windows' performance percentage); null where unknown.</summary>
+    public double? CpuClockMhz { get; init; }
+
+    /// <summary>Why the CPU is holding itself back right now (Intel): heat, PROCHOT, a power limit...</summary>
+    public CpuThrottleReason CpuThrottle { get; init; }
+
+    /// <summary>The CPU's sustained (PL1) and burst (PL2) power limits in watts as of now; the firmware changes them with the operating mode.</summary>
+    public double? CpuPowerLimit1 { get; init; }
+
+    public double? CpuPowerLimit2 { get; init; }
+
+    public int? GpuClockMhz { get; init; }
+
+    public int? GpuMemoryClockMhz { get; init; }
+
+    /// <summary>The driver's clocks event reasons (<see cref="GpuThrottle"/>); null where unknown or while the GPU sleeps.</summary>
+    public ulong? GpuThrottleReasons { get; init; }
+
+    /// <summary>The power limit the driver enforces on the GPU, in watts.</summary>
+    public double? GpuPowerLimit { get; init; }
+
     /// <summary>CPU and GPU together (not the whole laptop: the screen, memory and drives aren't in it); null with neither.</summary>
     public double? TotalPower => CpuPower is null && GpuPower is null ? null : (CpuPower ?? 0) + (GpuPower ?? 0);
     public IReadOnlyList<FanTelemetry> Fans { get; init; } = [];

@@ -46,6 +46,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     private string? _serialNumber;
     private DeviceCapabilities _detected = DeviceCapabilities.None;
     private DeviceCapabilities _capabilities = DeviceCapabilities.None;
+    private readonly TelemetryHistory _history = new();
     private FirmwareState? _firmware;
     private KeyboardState? _keyboardAtStart;
     private volatile Telemetry? _latest;
@@ -72,6 +73,9 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     public event EventHandler<MachineSettings>? SettingsChanged;
 
     public EngineState State => _state;
+
+    public Task<IReadOnlyList<Telemetry>> GetHistoryAsync(int seconds, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_history.Last(TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 3600))));
 
     /// <summary>Detects the laptop and starts controlling it. Never throws; see <see cref="State"/>.</summary>
     public void Start()
@@ -311,6 +315,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     {
         var latest = telemetry with { Battery = _powerService?.Telemetry() };
         _latest = latest;
+        _history.Add(latest);
         TelemetryUpdated?.Invoke(this, latest);
     }
 
