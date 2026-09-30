@@ -202,15 +202,15 @@ public static class ThermalAnalyzer
         if (power >= Often)
         {
             var limitsText = last.CpuPowerLimit1 is { } pl1 ? $" (PL1 {pl1:0} W" + (last.CpuPowerLimit2 is { } pl2 ? $", PL2 {pl2:0} W)" : ")") : "";
-            var belowPl1 = last.CpuPowerLimit1 is { } p1 && cpu.LoadedPowerMedianW is { } typical && typical < p1 * 0.8;
+            var belowPl1 = last.CpuPowerLimit1 is { } p1 && (cpu.LoadedPowerMedianW ?? cpu.PowerMedianW) is { } typical && typical < p1 * 0.8;
             var hot = cpu.TemperatureMedian >= limit - 10;
             var advice = belowPl1 && hot
-                ? "Power while loaded sits well below PL1, so the limit in force is lower than PL1: the firmware is most likely cutting power to manage heat, which points at cooling rather than at the mode."
+                ? "Power sits well below PL1, so the limit in force is lower than PL1: the firmware is most likely cutting power to manage heat, which points at cooling rather than at the mode."
                 : belowPl1
-                    ? "Power while loaded sits well below PL1, so the limit in force is lower than PL1 (set dynamically by the firmware)."
+                    ? "Power sits well below PL1, so the limit in force is lower than PL1 (set dynamically by the firmware)."
                     : "If the temperature has room, a higher operating mode may raise the limit.";
             findings.Add(new Finding(Severity.Notice, "cpu", "power-limit", "A power limit is holding the CPU's clocks down.",
-                $"Power-limit throttling in {power:P0} of the window{limitsText}; typical power while loaded {cpu.LoadedPowerMedianW ?? cpu.PowerMedianW:0} W. {advice}"));
+                $"Power-limit throttling in {power:P0} of the window{limitsText}; typical power {cpu.LoadedPowerMedianW ?? cpu.PowerMedianW:0} W. {advice}"));
         }
         var current = currentRuns.Sum(r => r.Seconds) / window;
         if (current >= Often)

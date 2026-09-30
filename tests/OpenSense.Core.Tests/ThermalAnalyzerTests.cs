@@ -184,6 +184,19 @@ public sealed class ThermalAnalyzerTests
     }
 
     [Fact]
+    public void A_hot_cpu_held_far_under_pl1_points_at_cooling()
+    {
+        // Load never reaches 60%, yet the power-limit flag is on while power sits at 60 W of a 115 W PL1 and the chip is hot.
+        var report = ThermalAnalyzer.Analyze(Run(60, (_, s) => s with
+        {
+            CpuLoad = 30, GpuLoad = 90, CpuTemperature = 90, CpuPower = 60, CpuPowerLimit1 = 115, CpuThrottle = CpuThrottleReason.PowerLimit,
+        }));
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "power-limit");
+        Assert.Contains("points at cooling", finding.Evidence);
+    }
+
+    [Fact]
     public void Gpu_reasons_the_model_does_not_know_are_still_named()
     {
         Assert.Equal(["other (0x1000)"], GpuThrottle.Describe(0x1000));
