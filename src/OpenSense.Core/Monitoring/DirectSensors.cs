@@ -28,10 +28,13 @@ public sealed class DirectSensors : IDisposable
 
     /// <param name="cpuDefaultLimit">The CPU's limit when its sensor doesn't report one: Intel's usual TjMax unless given.</param>
     internal DirectSensors(ITemperatureSensor? cpu, ITemperatureSensor? gpu, IGpuPowerState? gpuPower, SensorStatus cpuStatus, SensorStatus gpuStatus,
-        IGpuClockControl? gpuClocks = null, IDisposable? library = null, int cpuDefaultLimit = ThermalLimits.IntelCpuDefault)
+        IGpuClockControl? gpuClocks = null, IDisposable? library = null, int cpuDefaultLimit = ThermalLimits.IntelCpuDefault,
+        IPowerSensor? cpuWatts = null, IPowerSensor? gpuWatts = null)
     {
         Cpu = cpu;
         Gpu = gpu;
+        CpuWatts = cpuWatts;
+        GpuWatts = gpuWatts;
         GpuPower = gpuPower;
         CpuStatus = cpuStatus;
         GpuStatus = gpuStatus;
@@ -42,6 +45,12 @@ public sealed class DirectSensors : IDisposable
 
     public ITemperatureSensor? Cpu { get; }
     public ITemperatureSensor? Gpu { get; }
+
+    /// <summary>The CPU package's power draw (Intel only for now); null where it can't be read.</summary>
+    public IPowerSensor? CpuWatts { get; }
+
+    /// <summary>The discrete NVIDIA GPU's board power; read only while the GPU is awake.</summary>
+    public IPowerSensor? GpuWatts { get; }
 
     /// <summary>Whether the GPU is on, as Windows sees it; without it the firmware's reading decides.</summary>
     public IGpuPowerState? GpuPower { get; }
@@ -80,14 +89,18 @@ public sealed class DirectSensors : IDisposable
         // Only needed to know when the driver may be asked. One GPU can be listed twice (e.g. again for a virtual display).
         var onlyGpu = adapters.Select(a => a.PnpHardwareId).Distinct().Count() == 1;
         var gpuPower = gpu is not null && discrete is not null ? WindowsGpuPowerState.TryOpen(discrete, onlyGpu) : null;
+        var cpuWatts = cpu is null ? null : IntelPackagePower.TryOpen();
+        var gpuWatts = nvml is null ? null : NvmlGpuPower.TryOpen(nvml);
         return new DirectSensors(cpu, gpu, gpuPower, cpu?.Status ?? cpuFailure ?? SensorStatus.NotUsed, gpu?.Status ?? gpuFailure ?? SensorStatus.NotUsed,
-            clocks, nvml, CpuTemperatureSensor.DefaultLimit());
+            clocks, nvml, CpuTemperatureSensor.DefaultLimit(), cpuWatts, gpuWatts);
     }
 
     public void Dispose()
     {
         Cpu?.Dispose();
         Gpu?.Dispose();
+        CpuWatts?.Dispose();
+        GpuWatts?.Dispose();
         _library?.Dispose();
     }
 }

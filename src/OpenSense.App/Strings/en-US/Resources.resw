@@ -513,6 +513,10 @@
     <value>System temperature</value>
     <comment>Caption: the laptop's internal temperature.</comment>
   </data>
+  <data name="Dashboard_TotalPower.Text" xml:space="preserve">
+    <value>CPU + GPU power</value>
+    <comment>Caption: the power the CPU and the GPU draw together, in watts (not the whole laptop).</comment>
+  </data>
   <data name="Fans_Title.Text" xml:space="preserve">
     <value>Fans</value>
     <comment>Page title.</comment>

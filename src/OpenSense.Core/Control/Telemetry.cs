@@ -45,6 +45,15 @@ public sealed record Telemetry
     public double? SystemTemperature { get; init; }
     public double? CpuLoad { get; init; }
     public double? GpuLoad { get; init; }
+
+    /// <summary>The CPU package's power draw in watts; null where it can't be read.</summary>
+    public double? CpuPower { get; init; }
+
+    /// <summary>The GPU board's power draw in watts; null where it can't be read or while the GPU sleeps.</summary>
+    public double? GpuPower { get; init; }
+
+    /// <summary>CPU and GPU together (not the whole laptop: the screen, memory and drives aren't in it); null with neither.</summary>
+    public double? TotalPower => CpuPower is null && GpuPower is null ? null : (CpuPower ?? 0) + (GpuPower ?? 0);
     public IReadOnlyList<FanTelemetry> Fans { get; init; } = [];
 
     public FanControlMode RequestedMode { get; init; }

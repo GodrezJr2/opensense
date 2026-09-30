@@ -18,6 +18,10 @@ public static class Units
     public static string Percent(double? value) =>
         value is { } v ? (v / 100).ToString("P0", CultureInfo.CurrentCulture) : "--";
 
+    /// <summary>Watts, rounded: "45 W".</summary>
+    public static string Watts(double? watts) =>
+        watts is { } w ? string.Create(CultureInfo.CurrentCulture, $"{w:0} W") : "--";
+
     public static string Rpm(int? rpm) => Strings.Format("Unit_RpmValue", RpmNumber(rpm));
 
     public static string RpmNumber(int? rpm) =>

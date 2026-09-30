@@ -81,6 +81,12 @@
                         </Grid.RowDefinitions>
                         <Grid Margin="0,0,0,4">
                             <TextBlock x:Uid="Dashboard_CpuTemperature" Style="{StaticResource CaptionMutedStyle}" />
+                            <TextBlock
+                                Margin="0,0,16,0"
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource CaptionMutedStyle}"
+                                Text="{x:Bind Monitor.CpuPowerText, Mode=OneWay}"
+                                Visibility="{x:Bind Monitor.HasCpuPower, Mode=OneWay}" />
                             <Border
                                 Width="8"
                                 Height="8"
@@ -126,6 +132,12 @@
                         </Grid.RowDefinitions>
                         <Grid Margin="0,0,0,4">
                             <TextBlock x:Uid="Dashboard_GpuTemperature" Style="{StaticResource CaptionMutedStyle}" />
+                            <TextBlock
+                                Margin="0,0,16,0"
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource CaptionMutedStyle}"
+                                Text="{x:Bind Monitor.GpuPowerText, Mode=OneWay}"
+                                Visibility="{x:Bind Monitor.HasGpuPower, Mode=OneWay}" />
                             <Border
                                 Width="8"
                                 Height="8"
@@ -239,6 +251,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock x:Uid="Dashboard_PowerSource" Style="{StaticResource CaptionMutedStyle}" />
@@ -247,6 +260,10 @@
                             <StackPanel Grid.Column="1" Visibility="{x:Bind Monitor.HasSystemTemperature, Mode=OneWay}">
                                 <TextBlock x:Uid="Dashboard_SystemTemperature" Style="{StaticResource CaptionMutedStyle}" />
                                 <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Monitor.SystemTemperatureText, Mode=OneWay}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Visibility="{x:Bind Monitor.HasTotalPower, Mode=OneWay}">
+                                <TextBlock x:Uid="Dashboard_TotalPower" Style="{StaticResource CaptionMutedStyle}" />
+                                <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{x:Bind Monitor.TotalPowerText, Mode=OneWay}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>
