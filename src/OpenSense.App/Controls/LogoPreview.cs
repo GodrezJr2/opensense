@@ -12,7 +12,7 @@ using Windows.UI;
 
 namespace OpenSense.App.Controls;
 
-/// <summary>The laptop's lid with its lit logo (a plain emblem, not Acer's), as it will look.</summary>
+/// <summary>The laptop's lid with its lit logo, as it will look: a plain emblem, or the Predator mark on a Predator.</summary>
 public sealed partial class LogoPreview : CanvasElement
 {
     public static readonly DependencyProperty SourceProperty = DependencyProperty.Register(
@@ -33,6 +33,14 @@ public sealed partial class LogoPreview : CanvasElement
         set => SetValue(RevisionProperty, value);
     }
 
+    /// <summary>The left claw of the Predator mark, x across and y down, in units of the mark's height (-0.5 to 0.5).</summary>
+    private static readonly Vector2[] PredatorClaw =
+    [
+        new(-0.3846f, -0.5f), new(-0.3846f, 0.0701f), new(-0.2217f, 0.233f), new(-0.2217f, 0.0928f), new(-0.276f, 0.0339f),
+        new(-0.2715f, -0.1063f), new(-0.1855f, 0.0249f), new(-0.1855f, 0.5f), new(-0.1131f, 0.31f), new(-0.0226f, 0.2195f),
+        new(-0.0226f, -0.3778f), new(-0.1131f, -0.1199f), new(-0.1267f, -0.1063f), new(-0.2941f, -0.2783f),
+    ];
+
     protected override void OnDraw(CanvasDrawingSession session, Size size)
     {
         // The lid: a wide rounded panel.
@@ -42,22 +50,39 @@ public sealed partial class LogoPreview : CanvasElement
         var lidColor = IsLight ? Color.FromArgb(0x14, 0, 0, 0) : Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF);
         session.FillRoundedRectangle(lid, (float)(lidHeight * 0.06), (float)(lidHeight * 0.06), lidColor);
 
-        // The emblem: a chevron over a bar, centred on the lid.
-        var scale = (float)(lidHeight * 0.34);
+        var predator = Source?.IsPredator == true;
         var center = new Vector2((float)(lid.X + lid.Width / 2), (float)(lid.Y + lid.Height / 2));
+        // Half the emblem's width, which the colour gradients span.
+        var scale = (float)(lidHeight * (predator ? 0.2 : 0.34));
         using var builder = new CanvasPathBuilder(session);
-        builder.BeginFigure(center + new Vector2(-1.0f, -0.55f) * scale);
-        builder.AddLine(center + new Vector2(0, 0.35f) * scale);
-        builder.AddLine(center + new Vector2(1.0f, -0.55f) * scale);
-        builder.AddLine(center + new Vector2(0.62f, -0.55f) * scale);
-        builder.AddLine(center + new Vector2(0, 0.02f) * scale);
-        builder.AddLine(center + new Vector2(-0.62f, -0.55f) * scale);
-        builder.EndFigure(CanvasFigureLoop.Closed);
-        builder.BeginFigure(center + new Vector2(-0.34f, 0.5f) * scale);
-        builder.AddLine(center + new Vector2(0.34f, 0.5f) * scale);
-        builder.AddLine(center + new Vector2(0.26f, 0.64f) * scale);
-        builder.AddLine(center + new Vector2(-0.26f, 0.64f) * scale);
-        builder.EndFigure(CanvasFigureLoop.Closed);
+        if (predator)
+        {
+            // The Predator mark: two mirrored claws, traced as points in units of the mark's height.
+            var height = (float)(lidHeight * 0.5);
+            foreach (var mirror in new[] { 1f, -1f })
+            {
+                builder.BeginFigure(center + new Vector2(PredatorClaw[0].X * mirror, PredatorClaw[0].Y) * height);
+                foreach (var point in PredatorClaw.Skip(1))
+                    builder.AddLine(center + new Vector2(point.X * mirror, point.Y) * height);
+                builder.EndFigure(CanvasFigureLoop.Closed);
+            }
+        }
+        else
+        {
+            // A plain emblem: a chevron over a bar, centred on the lid.
+            builder.BeginFigure(center + new Vector2(-1.0f, -0.55f) * scale);
+            builder.AddLine(center + new Vector2(0, 0.35f) * scale);
+            builder.AddLine(center + new Vector2(1.0f, -0.55f) * scale);
+            builder.AddLine(center + new Vector2(0.62f, -0.55f) * scale);
+            builder.AddLine(center + new Vector2(0, 0.02f) * scale);
+            builder.AddLine(center + new Vector2(-0.62f, -0.55f) * scale);
+            builder.EndFigure(CanvasFigureLoop.Closed);
+            builder.BeginFigure(center + new Vector2(-0.34f, 0.5f) * scale);
+            builder.AddLine(center + new Vector2(0.34f, 0.5f) * scale);
+            builder.AddLine(center + new Vector2(0.26f, 0.64f) * scale);
+            builder.AddLine(center + new Vector2(-0.26f, 0.64f) * scale);
+            builder.EndFigure(CanvasFigureLoop.Closed);
+        }
         using var emblem = CanvasGeometry.CreatePath(builder);
 
         using var lit = new CanvasCommandList(session);

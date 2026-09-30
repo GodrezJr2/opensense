@@ -139,6 +139,9 @@ public sealed partial class LightingViewModel : ObservableObject
 
     public bool IsStatic => ModeIndex == 0;
 
+    /// <summary>The laptop is a Predator, so the logo preview draws the Predator mark rather than a plain emblem.</summary>
+    public bool IsPredator => _session.DeviceName?.Contains("Predator", StringComparison.OrdinalIgnoreCase) == true;
+
     public bool IsEffect => ModeIndex == 1;
 
     public bool IsPerKey => ModeIndex == 2;
