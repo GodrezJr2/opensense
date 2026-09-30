@@ -86,7 +86,8 @@ public sealed record ThermalReport(
     double? TotalPowerMaxW,
     IReadOnlyList<TimelineBucket> Timeline,
     IReadOnlyList<ThrottleEpisode> ThrottleEpisodes,
-    IReadOnlyList<Finding> Findings);
+    IReadOnlyList<Finding> Findings,
+    IReadOnlyList<string> Context);
 
 /// <summary>
 /// Reads a run of telemetry the way someone troubleshooting a laptop would: is a chip stuck at its thermal limit, is
@@ -106,12 +107,12 @@ public static class ThermalAnalyzer
 
     private static readonly string[] BandNames = ["30+ under limit", "20-30 under", "10-20 under", "3-10 under", "within 3 of limit or over"];
 
-    public static ThermalReport Analyze(IReadOnlyList<Telemetry> samples)
+    public static ThermalReport Analyze(IReadOnlyList<Telemetry> samples, HardwareProfile? profile = null)
     {
         if (samples.Count < MinimumSamples)
         {
             return new ThermalReport("not-enough-data", $"Fewer than {MinimumSamples} samples; wait a few seconds and ask again.", samples.Count, 0,
-                null, null, Empty("CPU"), null, [], null, null, [], [], []);
+                null, null, Empty("CPU"), null, [], null, null, [], [], [], []);
         }
 
         var last = samples[^1];
@@ -133,9 +134,10 @@ public static class ThermalAnalyzer
         var loaded = busyCpu >= Often || busyGpu >= Often;
 
         var episodes = new List<ThrottleEpisode>();
-        Cpu(findings, episodes, samples, interval, window, cpu, last, busyCpu);
+        Cpu(findings, episodes, samples, interval, window, cpu, last, busyCpu, profile?.Cpu.TypicalSustainedTemperature, profile?.Cpu.Series);
         if (gpu is not null)
-            Gpu(findings, episodes, samples, interval, window, gpu, busyGpu);
+            Gpu(findings, episodes, samples, interval, window, gpu, busyGpu, last, profile?.Gpu?.TypicalSustainedTemperature);
+        Budget(findings, profile, total);
         Fans(findings, samples, cpu, gpu, fans);
         Mode(findings, last, loaded);
 
@@ -147,11 +149,12 @@ public static class ThermalAnalyzer
 
         var (verdict, headline) = Decide(findings, loaded, cpu, gpu);
         return new ThermalReport(verdict, headline, samples.Count, Math.Round(window), last.OperatingMode?.ToString(), last.OnAcPower, cpu, gpu, fans,
-            Median(total), total.Count > 0 ? Math.Round(total.Max(), 1) : null, Timeline(samples), [.. episodes.OrderBy(e => e.StartSeconds).Take(MaximumEpisodes)], findings);
+            Median(total), total.Count > 0 ? Math.Round(total.Max(), 1) : null, Timeline(samples), [.. episodes.OrderBy(e => e.StartSeconds).Take(MaximumEpisodes)], findings,
+            profile is null ? [] : [.. profile.Describe(), profile.Caveat]);
     }
 
     private static void Cpu(List<Finding> findings, List<ThrottleEpisode> episodes, IReadOnlyList<Telemetry> samples, double interval, double window,
-        ChipSummary cpu, Telemetry last, double busy)
+        ChipSummary cpu, Telemetry last, double busy, TypicalRange? typical, string? series)
     {
         const CpuThrottleReason Thermal = CpuThrottleReason.Thermal | CpuThrottleReason.Prochot | CpuThrottleReason.Critical;
         var thermalRuns = Runs(samples, interval, s => (s.CpuThrottle & Thermal) != 0);
@@ -189,7 +192,10 @@ public static class ThermalAnalyzer
         }
         else if (cpu.TemperatureMedian >= limit - 10)
         {
-            findings.Add(new Finding(Severity.Notice, "cpu", "hot", "The CPU sits hot, close under its limit, without throttling for long.",
+            var usual = typical is not null && cpu.TemperatureMedian <= typical.HighC;
+            findings.Add(new Finding(usual ? Severity.Info : Severity.Notice, "cpu", usual ? "hot-typical" : "hot",
+                usual ? $"The CPU sits close under its limit, which is usual for a {series}-series chip, without throttling for long."
+                      : "The CPU sits hot, close under its limit, without throttling for long.",
                 $"Median {cpu.TemperatureMedian:0} °C, 95th percentile {cpu.Temperature95th:0} °C, limit {limit} °C: {limit - cpu.TemperatureMedian:0} °C of headroom at the typical moment."));
         }
         else if (cpu.Temperature95th >= limit - 10)
@@ -198,11 +204,27 @@ public static class ThermalAnalyzer
                 $"Median {cpu.TemperatureMedian:0} °C, but the 95th percentile is {cpu.Temperature95th:0} °C against a {limit} °C limit."));
         }
 
+        if (typical is not null && cpu.TemperatureMedian is { } median)
+        {
+            var load = cpu.LoadMedian is { } l ? $" at a median CPU load of {l:0}%" : "";
+            var watts = cpu.PowerMedianW is { } w ? $" and {w:0} W" : "";
+            if (median > typical.HighC)
+            {
+                findings.Add(new Finding(Severity.Notice, "cpu", "class-hot", $"The CPU runs hotter than is usual for a {series}-series chip.",
+                    $"Median {median:0} °C{load}{watts}; {series}-series chips usually sit around {typical.LowC:0}-{typical.HighC:0} °C under sustained load (rule of thumb). Suspect dust, dried thermal paste or a blocked vent."));
+            }
+            else if (median >= typical.LowC)
+            {
+                findings.Add(new Finding(Severity.Info, "cpu", "class-typical", $"The CPU temperature is in the usual range for a {series}-series chip.",
+                    $"Median {median:0} °C{load}{watts}, against the usual {typical.LowC:0}-{typical.HighC:0} °C for {series}-series under sustained load (rule of thumb)."));
+            }
+        }
+
         var power = powerRuns.Sum(r => r.Seconds) / window;
         if (power >= Often)
         {
             var limitsText = last.CpuPowerLimit1 is { } pl1 ? $" (PL1 {pl1:0} W" + (last.CpuPowerLimit2 is { } pl2 ? $", PL2 {pl2:0} W)" : ")") : "";
-            var belowPl1 = last.CpuPowerLimit1 is { } p1 && (cpu.LoadedPowerMedianW ?? cpu.PowerMedianW) is { } typical && typical < p1 * 0.8;
+            var belowPl1 = last.CpuPowerLimit1 is { } p1 && (cpu.LoadedPowerMedianW ?? cpu.PowerMedianW) is { } usualPower && usualPower < p1 * 0.8;
             var hot = cpu.TemperatureMedian >= limit - 10;
             var advice = belowPl1 && hot
                 ? "Power sits well below PL1, so the limit in force is lower than PL1: the firmware is most likely cutting power to manage heat, which points at cooling rather than at the mode."
@@ -224,7 +246,7 @@ public static class ThermalAnalyzer
     }
 
     private static void Gpu(List<Finding> findings, List<ThrottleEpisode> episodes, IReadOnlyList<Telemetry> samples, double interval, double window,
-        ChipSummary gpu, double busy)
+        ChipSummary gpu, double busy, Telemetry last, TypicalRange? typical)
     {
         const ulong Thermal = GpuThrottle.SoftwareThermalSlowdown | GpuThrottle.HardwareThermalSlowdown;
         const ulong Brake = GpuThrottle.HardwarePowerBrake | GpuThrottle.HardwareSlowdown;
@@ -246,8 +268,13 @@ public static class ThermalAnalyzer
         }
         else if (IsSustained(gpu.SecondsNearLimit, gpu.LongestNearLimitSeconds, window))
         {
-            findings.Add(new Finding(Severity.Warning, "gpu", "near-limit", "The GPU sits at its boost temperature target, so its clocks are being trimmed to hold it.",
-                $"Within {NearLimit:0} °C of the {limit} °C target for {gpu.SecondsNearLimit:0} s ({gpu.SecondsNearLimit / window:P0} of the window); median {gpu.TemperatureMedian:0} °C."));
+            // Holding the boost target is how a laptop GPU is meant to behave; it is a wall only if the driver reports a thermal slowdown.
+            var drawn = gpu.LoadedPowerMedianW ?? gpu.PowerMedianW;
+            var headroom = last.GpuPowerLimit is { } limitW && drawn is { } watts && watts < limitW
+                ? $" It draws about {watts:0} W of its {limitW:0} W limit, so roughly {limitW - watts:0} W of power headroom goes unused because of heat."
+                : "";
+            findings.Add(new Finding(Severity.Notice, "gpu", "gpu-at-target", "The GPU sits at its boost temperature target, which is how a laptop GPU holds its clocks.",
+                $"Within {NearLimit:0} °C of the {limit} °C target for {gpu.SecondsNearLimit:0} s ({gpu.SecondsNearLimit / window:P0} of the window); median {gpu.TemperatureMedian:0} °C, with no driver-reported thermal slowdown.{headroom}"));
         }
         else if (thermalRuns.Count > 0 || gpu.SecondsNearLimit > 0)
         {
@@ -258,6 +285,12 @@ public static class ThermalAnalyzer
         {
             findings.Add(new Finding(Severity.Notice, "gpu", "hot", "The GPU sits close under its temperature target.",
                 $"Median {gpu.TemperatureMedian:0} °C against a {limit} °C target."));
+        }
+
+        if (typical is not null && gpu.TemperatureMedian is { } gpuMedian && gpuMedian > typical.HighC)
+        {
+            findings.Add(new Finding(Severity.Notice, "gpu", "class-hot", "The GPU runs hotter than is usual for a laptop GPU.",
+                $"Median {gpuMedian:0} °C against a usual {typical.LowC:0}-{typical.HighC:0} °C under sustained load (rule of thumb)."));
         }
 
         var brake = brakeRuns.Sum(r => r.Seconds) / window;
@@ -273,6 +306,15 @@ public static class ThermalAnalyzer
             findings.Add(new Finding(Severity.Notice, "gpu", "power-cap", "The GPU is at its power cap under load, which is normal for a laptop GPU.",
                 $"Power-cap throttling in {cap:P0} of the window{atCap}. Only more power headroom (a higher mode, AC power) or a lower load changes this."));
         }
+    }
+
+    private static void Budget(List<Finding> findings, HardwareProfile? profile, List<double> total)
+    {
+        if (profile?.WorstCaseCombinedPowerW is not { } budget || Median(total) is not { } typical)
+            return;
+        findings.Add(new Finding(Severity.Info, "power", "budget", "How much of the CPU + GPU power budget the cooling and firmware let through.",
+            $"Typical CPU + GPU draw is {typical:0} W, {typical / budget:P0} of the {budget:0} W the two could draw together at their sustained limits (CPU sustained limit plus GPU power limit). " +
+            "The gap is normal in games, which rarely load both fully; in a stress test a large gap means heat or firmware is holding them back."));
     }
 
     private static void Fans(List<Finding> findings, IReadOnlyList<Telemetry> samples, ChipSummary cpu, ChipSummary? gpu, IReadOnlyList<FanSummary> fans)
@@ -322,7 +364,7 @@ public static class ThermalAnalyzer
             return ("thermal-limited", "Hitting the thermal wall: a chip is at or near its temperature limit for a sustained time.");
         if (!loaded)
             return ("not-enough-load", "No sustained load in this window, so it says little about limits.");
-        if (findings.Any(f => f.Code is "hot"))
+        if (findings.Any(f => f.Code is "hot" or "class-hot"))
             return ("running-hot", "Running hot, close under the limit at the typical moment, but not throttling for long.");
         if (findings.Any(f => f.Code is "power-limit" or "power-cap" or "mode" or "battery" or "supply"))
             return ("power-limited", "Not thermally limited for long; performance is held by a power limit or the operating mode.");

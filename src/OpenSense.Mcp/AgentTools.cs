@@ -1,3 +1,4 @@
+using System.Management;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -18,7 +19,9 @@ public sealed class AgentTools(IAgentSource source)
         "OpenSense reads a gaming laptop's sensors. Use machine_info once for what the hardware is, analyze_thermals for " +
         "'is it throttling / hitting the thermal wall / power limited', current_status for a live reading, and recent_history " +
         "for a time series. To diagnose a workload: have the user run it (for example in Turbo mode), then call analyze_thermals " +
-        "with seconds covering the run. Judge by where the chips SIT (median and 95th percentile, time near the limit, the " +
+        "with seconds covering the run. Read the 'context' lines it returns: they say what kind of CPU, GPU and laptop this is, " +
+        "because what is normal differs a lot (an HX-series CPU in a mainstream chassis runs far hotter than a U-series one). " +
+        "Class descriptions and 'typical' ranges are rules of thumb; core counts, power limits and memory are measured. Judge by where the chips SIT (median and 95th percentile, time near the limit, the " +
         "timeline and throttle episodes), not by the peak: a short spike to the limit is usually shader compilation or loading, " +
         "and the report separates it from a sustained problem. Terms: PL1 is the CPU's sustained power limit and PL2 its short boost limit, both set " +
         "by the operating mode; 'power-limited' means clocks are held by a power limit, 'thermal-limited' means by temperature; " +
@@ -60,15 +63,61 @@ public sealed class AgentTools(IAgentSource source)
             "machine_info" => await MachineInfoAsync(),
             "current_status" => Status(await source.SnapshotAsync()),
             "recent_history" => History(await source.HistoryAsync(Seconds(arguments, 300)), Clamp(arguments, "points", 60, 2, 240)),
-            "analyze_thermals" => ThermalAnalyzer.Analyze(await source.HistoryAsync(Seconds(arguments, 300))),
+            "analyze_thermals" => await AnalyzeAsync(Seconds(arguments, 300)),
             _ => throw new ToolException($"Unknown tool {name}."),
         };
         return JsonSerializer.SerializeToNode(result, Json)!;
     }
 
+    private async Task<object> AnalyzeAsync(int seconds)
+    {
+        var history = await source.HistoryAsync(seconds);
+        EngineSnapshot? snapshot = null;
+        try
+        {
+            snapshot = await source.SnapshotAsync();
+        }
+        catch (ToolException)
+        {
+            // The analysis still works without the machine's profile.
+        }
+        return ThermalAnalyzer.Analyze(history, snapshot is null ? null : Profile(snapshot));
+    }
+
+    /// <summary>What kind of machine this is: measured limits from the service plus the names, classified.</summary>
+    public static HardwareProfile Profile(EngineSnapshot snapshot)
+    {
+        var t = snapshot.Latest;
+        var (physical, logical) = CpuCores();
+        return HardwareProfiler.Describe(new ProfileInput(
+            snapshot.DeviceName, snapshot.CpuName, snapshot.GpuName, physical, logical ?? Environment.ProcessorCount,
+            t?.CpuBasePowerW, t?.CpuPowerLimit1, t?.CpuPowerLimit2, t?.GpuPowerLimitMax, t?.GpuPowerLimitDefault, t?.GpuMemoryGb,
+            snapshot.Capabilities.Fans.Count, Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024.0 / 1024 / 1024, 1)));
+    }
+
+    private static (int? Physical, int? Logical) CpuCores()
+    {
+        try
+        {
+            int physical = 0, logical = 0;
+            using var searcher = new ManagementObjectSearcher("SELECT NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor");
+            foreach (var cpu in searcher.Get())
+            {
+                physical += Convert.ToInt32(cpu["NumberOfCores"], System.Globalization.CultureInfo.InvariantCulture);
+                logical += Convert.ToInt32(cpu["NumberOfLogicalProcessors"], System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return (physical > 0 ? physical : null, logical > 0 ? logical : null);
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException)
+        {
+            return (null, null);
+        }
+    }
+
     private async Task<object> MachineInfoAsync()
     {
         var snapshot = await source.SnapshotAsync();
+        var hardware = Profile(snapshot);
         var caps = snapshot.Capabilities;
         var profile = snapshot.Settings.Profile;
         var memory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
@@ -82,6 +131,8 @@ public sealed class AgentTools(IAgentSource source)
             memoryGb = Math.Round(memory / 1024.0 / 1024 / 1024, 1),
             operatingSystem = Environment.OSVersion.VersionString,
             openSenseVersion = snapshot.EngineVersion,
+            context = hardware.Describe(),
+            hardwareProfile = hardware,
             operatingModes = caps.OperatingModes.Select(m => m.ToString()),
             fans = caps.Fans.Select(f => f.Name),
             thermalLimitsCelsius = snapshot.Latest?.Limits,

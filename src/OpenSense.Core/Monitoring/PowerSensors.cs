@@ -11,6 +11,9 @@ public interface IPowerSensor : IDisposable
 
     /// <summary>The sustained (PL1) and short-burst (PL2) power limits in watts, where the chip tells them.</summary>
     (double? Pl1, double? Pl2) Limits => (null, null);
+
+    /// <summary>The processor's base power (TDP) in watts, where the chip says it.</summary>
+    double? BaseTdp => null;
 }
 
 /// <summary>
@@ -22,6 +25,7 @@ internal sealed class IntelPackagePower : IPowerSensor
 {
     private const ulong PowerUnit = 0x606;    // MSR_RAPL_POWER_UNIT; bits 12:8 = energy unit, 1/2^n joule
     private const ulong PackageEnergy = 0x611; // MSR_PKG_ENERGY_STATUS; bits 31:0 = counter, wraps
+    private const ulong PackagePowerInfo = 0x614;  // MSR_PKG_POWER_INFO; bits 14:0 = TDP, in power units
     private const ulong PackagePowerLimit = 0x610; // MSR_PKG_POWER_LIMIT; bits 14:0 = PL1, 46:32 = PL2, in power units
 
     private readonly PawnIOModule _module;
@@ -42,6 +46,8 @@ internal sealed class IntelPackagePower : IPowerSensor
         _module.Call("ioctl_read_msr", PackagePowerLimit) is { } limits
             ? (LimitWatts((int)(limits & 0x7FFF)), LimitWatts((int)((limits >> 32) & 0x7FFF)))
             : (null, null);
+
+    public double? BaseTdp => _module.Call("ioctl_read_msr", PackagePowerInfo) is { } info ? LimitWatts((int)(info & 0x7FFF)) : null;
 
     private double? LimitWatts(int units) => units > 0 ? units * _wattsPerUnit : null;
 

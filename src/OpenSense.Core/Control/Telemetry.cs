@@ -63,6 +63,16 @@ public sealed record Telemetry
 
     public double? CpuPowerLimit2 { get; init; }
 
+    /// <summary>The processor's base power (TDP) in watts, where the chip says it; fixed for the chip.</summary>
+    public double? CpuBasePowerW { get; init; }
+
+    /// <summary>The most the driver lets the GPU draw, i.e. the laptop's graphics power (TGP); fixed for the GPU.</summary>
+    public double? GpuPowerLimitMax { get; init; }
+
+    public double? GpuPowerLimitDefault { get; init; }
+
+    public double? GpuMemoryGb { get; init; }
+
     public int? GpuClockMhz { get; init; }
 
     public int? GpuMemoryClockMhz { get; init; }

@@ -49,9 +49,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
     // Last sensor sample.
     private DateTime _lastSample = DateTime.MinValue;
-    private double? _cpuTemp, _gpuTemp, _systemTemp, _cpuLoad, _gpuLoad, _cpuWatts, _gpuWatts, _cpuClock, _cpuPl1, _cpuPl2;
+    private double? _cpuTemp, _gpuTemp, _systemTemp, _cpuLoad, _gpuLoad, _cpuWatts, _gpuWatts, _cpuClock, _cpuPl1, _cpuPl2, _cpuBase;
     private CpuThrottleReason _cpuThrottle;
     private GpuStatus? _gpuStatus;
+    private double? _gpuMax, _gpuDefault, _gpuVram; // fixed facts, kept for while the GPU sleeps
     private bool _gpuAsleep;
     private bool? _gpuOn;
     private TemperatureOrigin _cpuOrigin, _gpuOrigin;
@@ -330,6 +331,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             CpuThrottle = _cpuThrottle,
             CpuPowerLimit1 = _cpuPl1,
             CpuPowerLimit2 = _cpuPl2,
+            CpuBasePowerW = _cpuBase,
+            GpuPowerLimitMax = _gpuStatus?.MaxPowerLimitWatts ?? _gpuMax,
+            GpuPowerLimitDefault = _gpuStatus?.DefaultPowerLimitWatts ?? _gpuDefault,
+            GpuMemoryGb = _gpuStatus?.MemoryGb ?? _gpuVram,
             GpuClockMhz = _gpuStatus?.CoreMhz,
             GpuMemoryClockMhz = _gpuStatus?.MemoryMhz,
             GpuThrottleReasons = _gpuStatus?.ThrottleReasons,
@@ -364,6 +369,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         _cpuWatts = _direct.CpuWatts?.Read();
         (_cpuPl1, _cpuPl2) = _direct.CpuWatts?.Limits ?? (null, null);
         _cpuThrottle = _direct.Cpu?.Throttle ?? CpuThrottleReason.None;
+        _cpuBase ??= _direct.CpuWatts?.BaseTdp;
 
         var firmwareGpu = Capabilities.Has(SensorId.GpuTemperature);
         if (firmwareGpu || _direct.Gpu is not null)
@@ -377,6 +383,9 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             var gpu = on == true ? _direct.Gpu?.Read() : null;
             _gpuWatts = on == true ? _direct.GpuWatts?.Read() : null;
             _gpuStatus = on == true ? _direct.GpuStatusSensor?.Read() : null;
+            _gpuMax = _gpuStatus?.MaxPowerLimitWatts ?? _gpuMax;
+            _gpuDefault = _gpuStatus?.DefaultPowerLimitWatts ?? _gpuDefault;
+            _gpuVram = _gpuStatus?.MemoryGb ?? _gpuVram;
             _gpuOrigin = gpu is null ? TemperatureOrigin.Firmware : TemperatureOrigin.GpuDriver;
             _gpuTemp = gpu ?? (g > 0 ? g : null);
             _gpuAsleep = on == false && _gpuTemp is null;

@@ -70,7 +70,11 @@ public static class GpuThrottle
 }
 
 /// <summary>Clocks, throttle reasons and the enforced power limit, as the NVIDIA driver reports them.</summary>
-public sealed record GpuStatus(int? CoreMhz, int? MemoryMhz, ulong? ThrottleReasons, double? PowerLimitWatts);
+/// <param name="MaxPowerLimitWatts">The most the driver lets the board draw (the laptop's total graphics power, TGP).</param>
+/// <param name="DefaultPowerLimitWatts">The power limit the GPU ships with.</param>
+/// <param name="MemoryGb">Video memory.</param>
+public sealed record GpuStatus(int? CoreMhz, int? MemoryMhz, ulong? ThrottleReasons, double? PowerLimitWatts,
+    double? MaxPowerLimitWatts = null, double? DefaultPowerLimitWatts = null, double? MemoryGb = null);
 
 public interface IGpuStatusSensor : IDisposable
 {
@@ -87,10 +91,17 @@ internal sealed unsafe class NvmlGpuStatusSensor : IGpuStatusSensor
     private readonly delegate* unmanaged<nint, int, uint*, int> _clock;
     private readonly delegate* unmanaged<nint, ulong*, int> _reasons;
     private readonly delegate* unmanaged<nint, uint*, int> _powerLimit;
+    private readonly delegate* unmanaged<nint, uint*, uint*, int> _powerConstraints;
+    private readonly delegate* unmanaged<nint, uint*, int> _powerDefault;
+    private readonly delegate* unmanaged<nint, ulong*, int> _memory; // total, free, used
+    private double? _maxLimit, _defaultLimit, _memoryGb; // fixed for the GPU: read once
 
     private NvmlGpuStatusSensor(NvmlLibrary nvml, nint clock, nint reasons, nint powerLimit)
     {
         _nvml = nvml;
+        _powerConstraints = (delegate* unmanaged<nint, uint*, uint*, int>)nvml.Export("nvmlDeviceGetPowerManagementLimitConstraints");
+        _powerDefault = (delegate* unmanaged<nint, uint*, int>)nvml.Export("nvmlDeviceGetPowerManagementDefaultLimit");
+        _memory = (delegate* unmanaged<nint, ulong*, int>)nvml.Export("nvmlDeviceGetMemoryInfo");
         _clock = (delegate* unmanaged<nint, int, uint*, int>)clock;
         _reasons = (delegate* unmanaged<nint, ulong*, int>)reasons;
         _powerLimit = (delegate* unmanaged<nint, uint*, int>)powerLimit;
@@ -118,7 +129,30 @@ internal sealed unsafe class NvmlGpuStatusSensor : IGpuStatusSensor
         ulong bits;
         ulong? reasons = _reasons != null && _reasons(device, &bits) == NvmlLibrary.Success ? bits : null;
         double? limit = _powerLimit != null && _powerLimit(device, &value) == NvmlLibrary.Success ? value / 1000.0 : null;
-        return core is null && memory is null && reasons is null && limit is null ? null : new GpuStatus(core, memory, reasons, limit);
+        ReadFixedFacts(device);
+        return core is null && memory is null && reasons is null && limit is null ? null : new GpuStatus(core, memory, reasons, limit, _maxLimit, _defaultLimit, _memoryGb);
+    }
+
+    private void ReadFixedFacts(nint device)
+    {
+        if (_maxLimit is null && _powerConstraints != null)
+        {
+            uint min, max;
+            if (_powerConstraints(device, &min, &max) == NvmlLibrary.Success && max > 0)
+                _maxLimit = max / 1000.0;
+        }
+        if (_defaultLimit is null && _powerDefault != null)
+        {
+            uint value;
+            if (_powerDefault(device, &value) == NvmlLibrary.Success && value > 0)
+                _defaultLimit = value / 1000.0;
+        }
+        if (_memoryGb is null && _memory != null)
+        {
+            ulong* info = stackalloc ulong[3];
+            if (_memory(device, info) == NvmlLibrary.Success && info[0] > 0)
+                _memoryGb = Math.Round(info[0] / 1024.0 / 1024 / 1024, 1);
+        }
     }
 
     public void Dispose()
