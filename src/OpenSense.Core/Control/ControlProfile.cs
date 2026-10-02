@@ -78,6 +78,9 @@ public sealed record ControlProfile
     /// <summary>The discrete GPU's clock offsets, by operating mode; none by default.</summary>
     public GpuClockSettings GpuClocks { get; init; } = new();
 
+    /// <summary>How hard the CPU may run (its power limits and the temperature to keep under); the firmware's by default.</summary>
+    public CpuPowerSettings CpuPower { get; init; } = new();
+
     public SafetySettings Safety { get; init; } = new();
 
     public ManualFanSetting ManualFor(FanId fan) => Manual.GetValueOrDefault(fan) ?? new ManualFanSetting();

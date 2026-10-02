@@ -51,6 +51,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private DateTime _lastSample = DateTime.MinValue;
     private double? _cpuTemp, _gpuTemp, _systemTemp, _cpuLoad, _gpuLoad, _cpuWatts, _gpuWatts, _cpuClock, _cpuPl1, _cpuPl2, _cpuBase;
     private CpuThrottleReason _cpuThrottle;
+    private CpuTuning? _cpuTuning;
     private GpuStatus? _gpuStatus;
     private double? _gpuMax, _gpuDefault, _gpuVram; // fixed facts, kept for while the GPU sleeps
     private bool _gpuAsleep;
@@ -93,6 +94,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private PowerLimit? _lastLimit;
 
     private readonly GpuClockController? _gpuClocks;
+    private readonly CpuPowerController? _cpuPower;
 
     /// <param name="knownGpuClocks">What the GPU's driver said about clock offsets last time, for this GPU.</param>
     /// <param name="modes">
@@ -116,6 +118,8 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         _controllable = capabilities.ControllableFans;
         foreach (var fan in _controllable)
             _followers[fan.Id] = new CurveFollower();
+        if (_direct.CpuPowerControl is { } cpuPower)
+            _cpuPower = new CpuPowerController(cpuPower);
         if (_direct.GpuClocks is { } gpuClocks)
         {
             _gpuClocks = new GpuClockController(gpuClocks, knownGpuClocks);
@@ -310,6 +314,8 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         // After the mode: the offsets follow the mode in force (Balanced's, on battery).
         var gpuClocks = _gpuClocks?.Step(profile.GpuClocks.For(Capabilities.HasOperatingModes, _appliedMode, Capabilities.EcHid?.GpuOffsets),
             _gpuOn, reapply);
+        var cpuPowerControl = _cpuPower?.Step(profile.CpuPower, onAc, _cpuTemp,
+            (_cpuThrottle & (CpuThrottleReason.Thermal | CpuThrottleReason.Prochot | CpuThrottleReason.Critical)) != 0, _limits.Cpu, now);
         TrackDustDefender(now);
         var (effective, fanLock, boosting) = ApplyFans(profile, now, reapply);
 
@@ -332,6 +338,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             CpuPowerLimit1 = _cpuPl1,
             CpuPowerLimit2 = _cpuPl2,
             CpuBasePowerW = _cpuBase,
+            CpuTuning = _cpuTuning,
             GpuPowerLimitMax = _gpuStatus?.MaxPowerLimitWatts ?? _gpuMax,
             GpuPowerLimitDefault = _gpuStatus?.DefaultPowerLimitWatts ?? _gpuDefault,
             GpuMemoryGb = _gpuStatus?.MemoryGb ?? _gpuVram,
@@ -354,6 +361,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             PowerLimit = _limit,
             Failsafe = _failsafe,
             GpuClocks = gpuClocks,
+            CpuPowerControl = cpuPowerControl,
             DustDefenderRunning = Capabilities.DustDefender ? _dustSince is not null : null,
         };
         Latest = telemetry;
@@ -370,6 +378,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         (_cpuPl1, _cpuPl2) = _direct.CpuWatts?.Limits ?? (null, null);
         _cpuThrottle = _direct.Cpu?.Throttle ?? CpuThrottleReason.None;
         _cpuBase ??= _direct.CpuWatts?.BaseTdp;
+        _cpuTuning = _direct.CpuWatts?.Tuning();
 
         var firmwareGpu = Capabilities.Has(SensorId.GpuTemperature);
         if (firmwareGpu || _direct.Gpu is not null)
@@ -692,6 +701,14 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         try
         {
             _gpuClocks?.Restore();
+        }
+        catch (Exception)
+        {
+            // Exiting anyway; the driver clears them when it restarts.
+        }
+        try
+        {
+            _cpuPower?.Restore();
         }
         catch (Exception)
         {

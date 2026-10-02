@@ -66,6 +66,9 @@ public sealed record Telemetry
     /// <summary>The processor's base power (TDP) in watts, where the chip says it; fixed for the chip.</summary>
     public double? CpuBasePowerW { get; init; }
 
+    /// <summary>The CPU's power-limit register, current limit, core voltage and voltage offsets as the CPU has them; null where unreadable.</summary>
+    public CpuTuning? CpuTuning { get; init; }
+
     /// <summary>The most the driver lets the GPU draw, i.e. the laptop's graphics power (TGP); fixed for the GPU.</summary>
     public double? GpuPowerLimitMax { get; init; }
 
@@ -108,6 +111,9 @@ public sealed record Telemetry
 
     /// <summary>Null without an NVIDIA GPU whose driver takes clock offsets.</summary>
     public GpuClockTelemetry? GpuClocks { get; init; }
+
+    /// <summary>What OpenSense is doing about the CPU's power limits; null while it leaves them to the firmware.</summary>
+    public CpuPowerTelemetry? CpuPowerControl { get; init; }
 
     /// <summary>A Dust Defender run is going; null on laptops without it.</summary>
     public bool? DustDefenderRunning { get; init; }

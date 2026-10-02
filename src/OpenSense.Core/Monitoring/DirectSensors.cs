@@ -50,6 +50,9 @@ public sealed class DirectSensors : IDisposable
     /// <summary>The CPU package's power draw (Intel only for now); null where it can't be read.</summary>
     public IPowerSensor? CpuWatts { get; }
 
+    /// <summary>Sets the CPU's power limits (Intel only for now); null where they can't be written.</summary>
+    public ICpuPowerControl? CpuPowerControl => CpuWatts as ICpuPowerControl;
+
     /// <summary>The discrete NVIDIA GPU's board power; read only while the GPU is awake.</summary>
     public IPowerSensor? GpuWatts { get; }
 

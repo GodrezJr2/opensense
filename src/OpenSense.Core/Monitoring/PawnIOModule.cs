@@ -74,6 +74,23 @@ internal sealed unsafe class PawnIOModule : IDisposable
         return hr >= 0 && written == 1 ? output : null;
     }
 
+    /// <summary>Runs <paramref name="function"/> with <paramref name="arguments"/> and no result; false if the driver refused.</summary>
+    public bool Call(string function, ReadOnlySpan<ulong> arguments)
+    {
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+
+        Span<byte> name = stackalloc byte[function.Length + 1];
+        Encoding.ASCII.GetBytes(function, name);
+        name[^1] = 0;
+
+        nuint written;
+        int hr;
+        fixed (byte* functionName = name)
+        fixed (ulong* input = arguments)
+            hr = _library.Execute(_handle, functionName, input, (nuint)arguments.Length, null, 0, &written);
+        return hr >= 0;
+    }
+
     public void Dispose()
     {
         if (_handle == 0)
