@@ -64,7 +64,25 @@ Other agents take the same command in their MCP settings (`command` = the path a
 | `recent_history` | A time series of the last minutes (up to an hour), for trends |
 | `analyze_thermals` | A verdict (healthy, warm, power-limited, thermal-limited) with findings and the numbers behind each |
 
-The server is **read-only**: it cannot change a fan, mode or light, and it only talks to the OpenSense service on this PC over its local pipe. It needs the OpenSense service running (the installer sets that up).
+By default the server is **read-only**: it cannot change a fan, mode or light, and it only talks to the OpenSense service on this PC over its local pipe. It needs the OpenSense service running (the installer sets that up).
+
+### Letting the agent change things
+
+Start the server with `--allow-changes` (or set `OPENSENSE_MCP_ALLOW_CHANGES=1`) and it also offers tools to tune the CPU's power. This is off unless you turn it on:
+
+```powershell
+claude mcp add opensense -- "C:\Program Files\OpenSense\OpenSense.Mcp.exe" --allow-changes
+```
+
+| Tool | What it does |
+| --- | --- |
+| `set_performance_profile` | One of `silent`, `quiet_performance`, `optimize`, `turbo`, `unleash`: the operating mode, the fan mode and the CPU's power together. Curves, GPU offsets and lighting are left alone |
+| `set_cpu_power` | A CPU power preset (`firmware`, `eco`, `quiet`, `optimize`, `turbo`, `unleash`), or custom `pl1_w`, `pl2_w`, `window_s`, with a `ceiling_c` temperature target |
+| `restore_firmware_power` | Gives the CPU's limits back to the firmware |
+
+Every value is clamped (PL1 15-157 W, PL2 up to 200 W, ceiling 70-95 °C), limits move in steps of 5 W every few seconds and back off as the CPU nears its temperature target, nothing goes above the firmware's own values on battery, and OpenSense puts the firmware's limits back when it stops. The agent sees the result in `current_status` under `cpu.powerControl`.
+
+OpenSense sets the limits through the CPU's model-specific registers, which can lower the power limits but not raise them past what the firmware itself holds the CPU to (115 W on the Predator Helios Neo 16). Lowering is where the gain is: on that laptop about 65 W keeps 84 % of the CPU's speed with the fans a good deal quieter.
 
 ## Installation
 

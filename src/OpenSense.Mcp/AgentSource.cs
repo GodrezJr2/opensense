@@ -14,9 +14,12 @@ public interface IAgentSource
 
     /// <summary>The last <paramref name="seconds"/> of telemetry, oldest first.</summary>
     Task<IReadOnlyList<Telemetry>> HistoryAsync(int seconds);
+
+    /// <summary>Sets the machine's control profile. Only reached when the server was started with <c>--allow-changes</c>.</summary>
+    Task SetProfileAsync(ControlProfile profile) => throw new ToolException("This source can't change settings.");
 }
 
-/// <summary>Reads through the service's pipe. Only ever calls the read methods: nothing here can change a setting.</summary>
+/// <summary>Reads through the service's pipe, and sets the control profile when the server was allowed to change things.</summary>
 public sealed class PipeAgentSource : IAgentSource
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(3);
@@ -38,6 +41,12 @@ public sealed class PipeAgentSource : IAgentSource
         {
             throw new ToolException("The installed OpenSense service is too old to keep a history. Update OpenSense.");
         }
+    }
+
+    public async Task SetProfileAsync(ControlProfile profile)
+    {
+        using var connection = await ConnectAsync();
+        await connection.Service.SetProfileAsync(profile);
     }
 
     private static async Task<OpenSenseConnection> ConnectAsync()

@@ -4,7 +4,7 @@ namespace OpenSense.Mcp;
 
 /// <summary>
 /// A minimal Model Context Protocol server over JSON-RPC 2.0: initialize, ping, tools/list and tools/call, which is all
-/// read-only tools need. One message per line, as the stdio transport defines.
+/// tools need. One message per line, as the stdio transport defines.
 /// </summary>
 public sealed class McpServer(AgentTools tools, string serverVersion)
 {
@@ -59,15 +59,15 @@ public sealed class McpServer(AgentTools tools, string serverVersion)
                     ["protocolVersion"] = requested is not null && SupportedProtocols.Contains(requested) ? requested : LatestProtocol,
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
                     ["serverInfo"] = new JsonObject { ["name"] = "opensense", ["version"] = serverVersion },
-                    ["instructions"] = AgentTools.Instructions,
+                    ["instructions"] = tools.InstructionsText,
                 };
             case "ping":
                 return new JsonObject();
             case "tools/list":
-                return new JsonObject { ["tools"] = AgentTools.Definitions() };
+                return new JsonObject { ["tools"] = tools.AllDefinitions() };
             case "tools/call":
                 var name = parameters?["name"]?.GetValue<string>() ?? throw new InvalidParams("Missing tool name.");
-                if (!AgentTools.Definitions().Any(t => t?["name"]?.GetValue<string>() == name))
+                if (!tools.AllDefinitions().Any(t => t?["name"]?.GetValue<string>() == name))
                     throw new InvalidParams($"Unknown tool: {name}");
                 return await CallToolAsync(name, parameters?["arguments"] as JsonObject);
             default:
