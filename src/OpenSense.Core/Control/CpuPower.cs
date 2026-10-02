@@ -17,7 +17,10 @@ public enum CpuPowerPreset
     /// <summary>The best clocks per watt for the chassis' cooling: below the firmware's limits, well under the thermal limit.</summary>
     Optimize,
 
-    /// <summary>The firmware's own limits, with a longer burst; the usual full-power setting.</summary>
+    /// <summary>
+    /// The firmware's own limits, with a longer burst. Not used by the Turbo profile, which leaves the limits to the firmware:
+    /// a temperature ceiling under the firmware's own thermal limit would hold the CPU below what the firmware allows.
+    /// </summary>
     Turbo,
 
     /// <summary>
@@ -77,8 +80,8 @@ public static class CpuPowerPresets
     public static CpuPowerTarget Eco { get; } = new(35, 65, 28, 78);
     public static CpuPowerTarget Quiet { get; } = new(65, 85, 96, 84);
     public static CpuPowerTarget Optimize { get; } = new(80, 115, 56, 86);
-    public static CpuPowerTarget Turbo { get; } = new(115, 157, 96, 90);
-    public static CpuPowerTarget Unleash { get; } = new(157, 200, 128, 94);
+    public static CpuPowerTarget Turbo { get; } = new(115, 157, 96, MaxCeilingC);
+    public static CpuPowerTarget Unleash { get; } = new(157, 200, 128, MaxCeilingC);
 
     public const double MinPl1W = 15;
     public const double MaxPl1W = 157;

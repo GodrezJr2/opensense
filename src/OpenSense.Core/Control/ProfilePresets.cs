@@ -17,13 +17,16 @@ public enum PerformanceProfile
     /// <summary>The firmware's full power: Turbo mode, the CPU's own limits.</summary>
     Turbo,
 
-    /// <summary>Everything switched up: Turbo mode, fans at full speed, the highest CPU limits OpenSense can set.</summary>
+    /// <summary>Everything switched up: Turbo mode and the fans at full speed, with the CPU's own limits.</summary>
     Unleash,
 }
 
 /// <summary>
 /// The performance profiles as <see cref="ControlProfile"/> changes. They set the operating mode, the fan mode and the
 /// CPU's power, and leave everything else (curves, GPU clock offsets, lighting) as the user has it.
+/// Turbo and Unleash leave the CPU's limits to the firmware: OpenSense can lower them but not raise them past what the
+/// firmware holds the CPU to, and holding them under a temperature ceiling would only make these profiles slower than
+/// the firmware's own Turbo.
 /// </summary>
 public static class ProfilePresets
 {
@@ -32,8 +35,8 @@ public static class ProfilePresets
         PerformanceProfile.Silent => With(profile, OperatingMode.Quiet, FanControlMode.Auto, CpuPowerPreset.Eco),
         PerformanceProfile.QuietPerformance => With(profile, OperatingMode.Balanced, FanControlMode.Auto, CpuPowerPreset.Quiet),
         PerformanceProfile.Optimize => With(profile, OperatingMode.Performance, FanControlMode.Auto, CpuPowerPreset.Optimize),
-        PerformanceProfile.Turbo => With(profile, OperatingMode.Turbo, FanControlMode.Auto, CpuPowerPreset.Turbo),
-        PerformanceProfile.Unleash => With(profile, OperatingMode.Turbo, FanControlMode.Max, CpuPowerPreset.Unleash),
+        PerformanceProfile.Turbo => With(profile, OperatingMode.Turbo, FanControlMode.Auto, CpuPowerPreset.Firmware),
+        PerformanceProfile.Unleash => With(profile, OperatingMode.Turbo, FanControlMode.Max, CpuPowerPreset.Firmware),
         _ => profile,
     };
 
