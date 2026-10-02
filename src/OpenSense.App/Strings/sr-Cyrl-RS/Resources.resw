@@ -1772,4 +1772,52 @@ GPU: {1}</value>
     <value>Оверклок који фирмвер задаје за сваки режим, додат помацима испод.</value>
     <comment>Under "Acer's overclocking": the firmware's own overclock for each mode is added to the user's offsets set below it.</comment>
   </data>
+  <data name="Dashboard_Profile.Text" xml:space="preserve">
+    <value>Профил</value>
+    <comment>Card title: a performance profile sets the operating mode, the fans and the CPU's power together.</comment>
+  </data>
+  <data name="Profile_Silent" xml:space="preserve">
+    <value>Тих</value>
+    <comment>Performance profile name. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_QuietPerformance" xml:space="preserve">
+    <value>Тихе перформансе</value>
+    <comment>Performance profile name: most of the speed for much quieter fans. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Optimize" xml:space="preserve">
+    <value>Оптимизација</value>
+    <comment>Performance profile name: the best speed per watt. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Unleash" xml:space="preserve">
+    <value>Пуна снага</value>
+    <comment>Performance profile name: everything switched up. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Silent_Description" xml:space="preserve">
+    <value>Тихо и хладно. Процесор је ограничен на око 35 W.</value>
+    <comment>The CPU is held to about 35 W.</comment>
+  </data>
+  <data name="Profile_QuietPerformance_Description" xml:space="preserve">
+    <value>Већина брзине уз много тише вентилаторе. Процесор је ограничен на око 65 W.</value>
+    <comment>The CPU is held to about 65 W.</comment>
+  </data>
+  <data name="Profile_Optimize_Description" xml:space="preserve">
+    <value>Најбоља брзина по вату. Процесор је ограничен на око 80 W.</value>
+    <comment>The CPU is held to about 80 W.</comment>
+  </data>
+  <data name="Profile_Turbo_Description" xml:space="preserve">
+    <value>Пуна снага фирмвера. Потребно је напајање из мреже.</value>
+    <comment>The firmware's own limits. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Unleash_Description" xml:space="preserve">
+    <value>Turbo са вентилаторима на пуној брзини. Потребно је напајање из мреже.</value>
+    <comment>Turbo = OperatingMode_Turbo. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Custom_Description" xml:space="preserve">
+    <value>Сопствена комбинација подешавања. Профил заједно поставља режим рада, вентилаторе и снагу процесора.</value>
+    <comment>Shown when the settings are not exactly one of the profiles.</comment>
+  </data>
+  <data name="Profile_CpuPower" xml:space="preserve">
+    <value>Ограничења процесора: {0} W трајно, {1} W кратко</value>
+    <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
 </root>

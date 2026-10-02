@@ -1772,4 +1772,52 @@ Details: {1}</value>
     <value>Die Übertaktung, die die Firmware für jeden Modus festlegt, zu den Offsets unten addiert.</value>
     <comment>Under "Acer's overclocking": the firmware's own overclock for each mode is added to the user's offsets set below it.</comment>
   </data>
+  <data name="Dashboard_Profile.Text" xml:space="preserve">
+    <value>Profil</value>
+    <comment>Card title: a performance profile sets the operating mode, the fans and the CPU's power together.</comment>
+  </data>
+  <data name="Profile_Silent" xml:space="preserve">
+    <value>Leise</value>
+    <comment>Performance profile name. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_QuietPerformance" xml:space="preserve">
+    <value>Leise Leistung</value>
+    <comment>Performance profile name: most of the speed for much quieter fans. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Optimize" xml:space="preserve">
+    <value>Optimieren</value>
+    <comment>Performance profile name: the best speed per watt. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Unleash" xml:space="preserve">
+    <value>Volle Kraft</value>
+    <comment>Performance profile name: everything switched up. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Silent_Description" xml:space="preserve">
+    <value>Leise und kühl. Die CPU wird auf etwa 35 W begrenzt.</value>
+    <comment>The CPU is held to about 35 W.</comment>
+  </data>
+  <data name="Profile_QuietPerformance_Description" xml:space="preserve">
+    <value>Der Großteil der Geschwindigkeit bei deutlich leiseren Lüftern. Die CPU wird auf etwa 65 W begrenzt.</value>
+    <comment>The CPU is held to about 65 W.</comment>
+  </data>
+  <data name="Profile_Optimize_Description" xml:space="preserve">
+    <value>Die beste Geschwindigkeit pro Watt. Die CPU wird auf etwa 80 W begrenzt.</value>
+    <comment>The CPU is held to about 80 W.</comment>
+  </data>
+  <data name="Profile_Turbo_Description" xml:space="preserve">
+    <value>Die volle Leistung der Firmware. Benötigt Netzbetrieb.</value>
+    <comment>The firmware's own limits. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Unleash_Description" xml:space="preserve">
+    <value>Turbo mit Lüftern auf voller Drehzahl. Benötigt Netzbetrieb.</value>
+    <comment>Turbo = OperatingMode_Turbo. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Custom_Description" xml:space="preserve">
+    <value>Eine eigene Mischung der Einstellungen. Ein Profil legt Betriebsmodus, Lüfter und CPU-Leistung gemeinsam fest.</value>
+    <comment>Shown when the settings are not exactly one of the profiles.</comment>
+  </data>
+  <data name="Profile_CpuPower" xml:space="preserve">
+    <value>CPU-Limits: {0} W dauerhaft, {1} W kurzzeitig</value>
+    <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
 </root>

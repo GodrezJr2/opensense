@@ -1772,4 +1772,52 @@ Detalii: {1}</value>
     <value>Overclocking-ul pe care firmware-ul îl setează pentru fiecare mod, adăugat la decalajele de mai jos.</value>
     <comment>Under "Acer's overclocking": the firmware's own overclock for each mode is added to the user's offsets set below it.</comment>
   </data>
+  <data name="Dashboard_Profile.Text" xml:space="preserve">
+    <value>Profil</value>
+    <comment>Card title: a performance profile sets the operating mode, the fans and the CPU's power together.</comment>
+  </data>
+  <data name="Profile_Silent" xml:space="preserve">
+    <value>Silențios</value>
+    <comment>Performance profile name. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_QuietPerformance" xml:space="preserve">
+    <value>Performanță silențioasă</value>
+    <comment>Performance profile name: most of the speed for much quieter fans. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Optimize" xml:space="preserve">
+    <value>Optimizare</value>
+    <comment>Performance profile name: the best speed per watt. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Unleash" xml:space="preserve">
+    <value>Putere maximă</value>
+    <comment>Performance profile name: everything switched up. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Silent_Description" xml:space="preserve">
+    <value>Silențios și răcoros. Procesorul este limitat la aproximativ 35 W.</value>
+    <comment>The CPU is held to about 35 W.</comment>
+  </data>
+  <data name="Profile_QuietPerformance_Description" xml:space="preserve">
+    <value>Cea mai mare parte din viteză, cu ventilatoare mult mai silențioase. Procesorul este limitat la aproximativ 65 W.</value>
+    <comment>The CPU is held to about 65 W.</comment>
+  </data>
+  <data name="Profile_Optimize_Description" xml:space="preserve">
+    <value>Cea mai bună viteză pe watt. Procesorul este limitat la aproximativ 80 W.</value>
+    <comment>The CPU is held to about 80 W.</comment>
+  </data>
+  <data name="Profile_Turbo_Description" xml:space="preserve">
+    <value>Puterea completă a firmware-ului. Necesită alimentare de la rețea.</value>
+    <comment>The firmware's own limits. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Unleash_Description" xml:space="preserve">
+    <value>Turbo cu ventilatoarele la viteză maximă. Necesită alimentare de la rețea.</value>
+    <comment>Turbo = OperatingMode_Turbo. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Custom_Description" xml:space="preserve">
+    <value>O combinație proprie de setări. Un profil setează împreună modul de funcționare, ventilatoarele și puterea procesorului.</value>
+    <comment>Shown when the settings are not exactly one of the profiles.</comment>
+  </data>
+  <data name="Profile_CpuPower" xml:space="preserve">
+    <value>Limite procesor: {0} W susținut, {1} W în rafală</value>
+    <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
 </root>

@@ -1772,4 +1772,52 @@ GPU：{1}</value>
     <value>韌體為每種模式設定的超頻，疊加在下方的偏移量上。</value>
     <comment>Under "Acer's overclocking": the firmware's own overclock for each mode is added to the user's offsets set below it.</comment>
   </data>
+  <data name="Dashboard_Profile.Text" xml:space="preserve">
+    <value>設定檔</value>
+    <comment>Card title: a performance profile sets the operating mode, the fans and the CPU's power together.</comment>
+  </data>
+  <data name="Profile_Silent" xml:space="preserve">
+    <value>靜音</value>
+    <comment>Performance profile name. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_QuietPerformance" xml:space="preserve">
+    <value>安靜效能</value>
+    <comment>Performance profile name: most of the speed for much quieter fans. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Optimize" xml:space="preserve">
+    <value>最佳化</value>
+    <comment>Performance profile name: the best speed per watt. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Unleash" xml:space="preserve">
+    <value>全速釋放</value>
+    <comment>Performance profile name: everything switched up. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Silent_Description" xml:space="preserve">
+    <value>安靜涼爽。CPU 限制在約 35 W。</value>
+    <comment>The CPU is held to about 35 W.</comment>
+  </data>
+  <data name="Profile_QuietPerformance_Description" xml:space="preserve">
+    <value>保留大部分速度，風扇噪音大幅降低。CPU 限制在約 65 W。</value>
+    <comment>The CPU is held to about 65 W.</comment>
+  </data>
+  <data name="Profile_Optimize_Description" xml:space="preserve">
+    <value>每瓦速度最佳。CPU 限制在約 80 W。</value>
+    <comment>The CPU is held to about 80 W.</comment>
+  </data>
+  <data name="Profile_Turbo_Description" xml:space="preserve">
+    <value>韌體的全部效能。需要接上交流電源。</value>
+    <comment>The firmware's own limits. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Unleash_Description" xml:space="preserve">
+    <value>風扇全速運轉的 Turbo。需要接上交流電源。</value>
+    <comment>Turbo = OperatingMode_Turbo. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Custom_Description" xml:space="preserve">
+    <value>自訂的設定組合。選擇設定檔會同時設定運作模式、風扇和 CPU 功率。</value>
+    <comment>Shown when the settings are not exactly one of the profiles.</comment>
+  </data>
+  <data name="Profile_CpuPower" xml:space="preserve">
+    <value>CPU 限制：持續 {0} W，短時 {1} W</value>
+    <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
 </root>

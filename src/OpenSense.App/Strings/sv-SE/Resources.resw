@@ -1772,4 +1772,52 @@ Information: {1}</value>
     <value>Överklockningen som den inbyggda programvaran anger för varje läge, tillagd till förskjutningarna nedan.</value>
     <comment>Under "Acer's overclocking": the firmware's own overclock for each mode is added to the user's offsets set below it.</comment>
   </data>
+  <data name="Dashboard_Profile.Text" xml:space="preserve">
+    <value>Profil</value>
+    <comment>Card title: a performance profile sets the operating mode, the fans and the CPU's power together.</comment>
+  </data>
+  <data name="Profile_Silent" xml:space="preserve">
+    <value>Tyst</value>
+    <comment>Performance profile name. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_QuietPerformance" xml:space="preserve">
+    <value>Tyst prestanda</value>
+    <comment>Performance profile name: most of the speed for much quieter fans. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Optimize" xml:space="preserve">
+    <value>Optimera</value>
+    <comment>Performance profile name: the best speed per watt. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Unleash" xml:space="preserve">
+    <value>Full kraft</value>
+    <comment>Performance profile name: everything switched up. Short: a segmented button.</comment>
+  </data>
+  <data name="Profile_Silent_Description" xml:space="preserve">
+    <value>Tyst och sval. Processorn begränsas till cirka 35 W.</value>
+    <comment>The CPU is held to about 35 W.</comment>
+  </data>
+  <data name="Profile_QuietPerformance_Description" xml:space="preserve">
+    <value>Det mesta av hastigheten med mycket tystare fläktar. Processorn begränsas till cirka 65 W.</value>
+    <comment>The CPU is held to about 65 W.</comment>
+  </data>
+  <data name="Profile_Optimize_Description" xml:space="preserve">
+    <value>Bäst hastighet per watt. Processorn begränsas till cirka 80 W.</value>
+    <comment>The CPU is held to about 80 W.</comment>
+  </data>
+  <data name="Profile_Turbo_Description" xml:space="preserve">
+    <value>Fullt effektuttag från den fasta programvaran. Kräver nätström.</value>
+    <comment>The firmware's own limits. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Unleash_Description" xml:space="preserve">
+    <value>Turbo med fläktarna på full hastighet. Kräver nätström.</value>
+    <comment>Turbo = OperatingMode_Turbo. AC = mains power.</comment>
+  </data>
+  <data name="Profile_Custom_Description" xml:space="preserve">
+    <value>En egen blandning av inställningar. En profil ställer in driftläge, fläktar och processoreffekt tillsammans.</value>
+    <comment>Shown when the settings are not exactly one of the profiles.</comment>
+  </data>
+  <data name="Profile_CpuPower" xml:space="preserve">
+    <value>Processorgränser: {0} W varaktigt, {1} W kortvarigt</value>
+    <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
 </root>

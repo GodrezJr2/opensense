@@ -35,6 +35,26 @@ public static class Names
         _ => Strings.Get("OperatingMode_Balanced"),
     };
 
+    public static string Profile(PerformanceProfile profile) => profile switch
+    {
+        PerformanceProfile.Silent => Strings.Get("Profile_Silent"),
+        PerformanceProfile.QuietPerformance => Strings.Get("Profile_QuietPerformance"),
+        PerformanceProfile.Optimize => Strings.Get("Profile_Optimize"),
+        PerformanceProfile.Turbo => Strings.Get("OperatingMode_Turbo"),
+        _ => Strings.Get("Profile_Unleash"),
+    };
+
+    /// <summary>What a profile does; null is the user's own mix of settings.</summary>
+    public static string ProfileDescription(PerformanceProfile? profile) => profile switch
+    {
+        PerformanceProfile.Silent => Strings.Get("Profile_Silent_Description"),
+        PerformanceProfile.QuietPerformance => Strings.Get("Profile_QuietPerformance_Description"),
+        PerformanceProfile.Optimize => Strings.Get("Profile_Optimize_Description"),
+        PerformanceProfile.Turbo => Strings.Get("Profile_Turbo_Description"),
+        PerformanceProfile.Unleash => Strings.Get("Profile_Unleash_Description"),
+        _ => Strings.Get("Profile_Custom_Description"),
+    };
+
     public static string OperatingModeDescription(OperatingMode mode) => mode switch
     {
         Core.Hardware.OperatingMode.Eco => Strings.Get("OperatingMode_Eco_Description"),

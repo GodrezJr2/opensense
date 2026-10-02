@@ -172,6 +172,30 @@
                 <!-- Then a tile per fan (FanTileTemplate) -->
             </controls:TileGrid>
 
+            <!-- Profile: the operating mode, the fans and the CPU's power together -->
+            <Border Style="{StaticResource CardStyle}" Visibility="{x:Bind Fans.ProfilesAvailable, Mode=OneWay}">
+                <StackPanel Spacing="12">
+                    <TextBlock x:Uid="Dashboard_Profile" Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <toolkit:Segmented
+                        HorizontalAlignment="Stretch"
+                        ItemsSource="{x:Bind vm:FanControlViewModel.Profiles}"
+                        SelectedIndex="{x:Bind Fans.ProfileIndex, Mode=TwoWay}">
+                        <toolkit:Segmented.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProfileOption">
+                                <TextBlock Text="{x:Bind Name}" />
+                            </DataTemplate>
+                        </toolkit:Segmented.ItemTemplate>
+                    </toolkit:Segmented>
+                    <TextBlock
+                        Style="{StaticResource CaptionMutedStyle}"
+                        Text="{x:Bind Fans.ProfileDescription, Mode=OneWay}"
+                        TextWrapping="Wrap" />
+                    <TextBlock
+                        Style="{StaticResource CaptionMutedStyle}"
+                        Text="{x:Bind Fans.CpuPowerText, Mode=OneWay}" />
+                </StackPanel>
+            </Border>
+
             <!-- Controls -->
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>

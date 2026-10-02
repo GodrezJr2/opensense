@@ -74,6 +74,8 @@ public sealed partial class CurveFanViewModel(FanId id, FanChip chip, string nam
 
 public sealed record OperatingModeOption(OperatingMode Mode, string Name, string Description);
 
+public sealed record ProfileOption(PerformanceProfile Profile, string Name);
+
 /// <summary>Fan mode, Auto's boost, Custom boosts and curves, CoolBoost and operating modes.</summary>
 public sealed partial class FanControlViewModel : ObservableObject
 {
@@ -97,6 +99,9 @@ public sealed partial class FanControlViewModel : ObservableObject
     private bool _loading;
     private PowerLimit _limit;
 
+    /// <summary>The CPU's power setting as the profile has it; the profile buttons set it and the other controls leave it.</summary>
+    private CpuPowerSettings _cpuPower = new();
+
     /// <summary>The user picked an operating mode since the last push.</summary>
     private bool _modeChosen;
 
@@ -113,6 +118,15 @@ public sealed partial class FanControlViewModel : ObservableObject
         _pushTimer.Tick += (_, _) => Push();
         monitor.PropertyChanged += OnMonitorChanged;
     }
+
+    /// <summary>The performance profiles, in the order they are listed.</summary>
+    public static IReadOnlyList<ProfileOption> Profiles { get; } =
+    [
+        .. new[]
+        {
+            PerformanceProfile.Silent, PerformanceProfile.QuietPerformance, PerformanceProfile.Optimize, PerformanceProfile.Turbo, PerformanceProfile.Unleash,
+        }.Select(p => new ProfileOption(p, Names.Profile(p))),
+    ];
 
     /// <summary>In <see cref="FanControlMode"/> order.</summary>
     public static IReadOnlyList<string> ModeNames { get; } =
@@ -140,6 +154,7 @@ public sealed partial class FanControlViewModel : ObservableObject
     public partial bool AutoBoostEnabled { get; set; } = true;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProfilesAvailable))]
     public partial bool HasFans { get; set; }
 
     [ObservableProperty]
@@ -174,6 +189,20 @@ public sealed partial class FanControlViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool OperatingModesAvailable { get; set; }
+
+    /// <summary>The performance profile the settings are exactly (an index into <see cref="Profiles"/>), or -1 for the user's own mix.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProfileDescription))]
+    public partial int ProfileIndex { get; set; } = -1;
+
+    public string ProfileDescription => Names.ProfileDescription(ProfileIndex >= 0 && ProfileIndex < Profiles.Count ? Profiles[ProfileIndex].Profile : null);
+
+    /// <summary>The CPU's power limits as they are now, e.g. "CPU limits: 65 W sustained, 85 W burst"; null while unknown.</summary>
+    [ObservableProperty]
+    public partial string? CpuPowerText { get; set; }
+
+    /// <summary>The laptop has operating modes and fans, which the profiles set along with the CPU's power.</summary>
+    public bool ProfilesAvailable => HasFans && OperatingModesAvailable;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(OperatingModeDescription))]
@@ -252,6 +281,8 @@ public sealed partial class FanControlViewModel : ObservableObject
 
         _limit = _session.Latest?.PowerLimit ?? PowerLimit.None;
         ListOperatingModes();
+        _cpuPower = profile.CpuPower;
+        ProfileIndex = ProfileIndexOf(profile);
 
         RestoreAutoOnExit = profile.Safety.RestoreAutoOnExit;
         DustDefenderAvailable = caps.DustDefender;
@@ -277,6 +308,7 @@ public sealed partial class FanControlViewModel : ObservableObject
         foreach (var option in AllModes.Where(m => allowed.Contains(m.Mode)))
             OperatingModes.Add(option);
         OperatingModesAvailable = OperatingModes.Count > 0;
+        OnPropertyChanged(nameof(ProfilesAvailable));
         var shown = OperatingModePolicy.Target(profile, caps.OperatingModes, _limit, caps.ModeRules) ?? _session.Firmware?.OperatingMode;
         OperatingModeIndex = shown is { } mode ? IndexOf(mode) : -1;
         OperatingModeNote = _limit switch
@@ -316,6 +348,32 @@ public sealed partial class FanControlViewModel : ObservableObject
                 return i;
         }
         return -1;
+    }
+
+    private static int ProfileIndexOf(ControlProfile profile)
+    {
+        if (ProfilePresets.Detect(profile) is not { } detected)
+            return -1;
+        for (var i = 0; i < Profiles.Count; i++)
+        {
+            if (Profiles[i].Profile == detected)
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>The user picked a profile: the operating mode, the fans and the CPU's power are set together.</summary>
+    partial void OnProfileIndexChanged(int value)
+    {
+        if (_loading || value < 0 || value >= Profiles.Count)
+            return;
+        var applied = ProfilePresets.Apply(new ControlProfile(), Profiles[value].Profile);
+        _cpuPower = applied.CpuPower;
+        ModeIndex = (int)applied.Mode;
+        // A mode the power supply doesn't allow now (Turbo on battery) stays unset; the CPU's limits still apply.
+        if (applied.OperatingMode is { } mode && IndexOf(mode) is >= 0 and var index)
+            OperatingModeIndex = index;
+        SchedulePush();
     }
 
     partial void OnModeIndexChanged(int value)
@@ -394,6 +452,7 @@ public sealed partial class FanControlViewModel : ObservableObject
             // Only a curve the user picked is written: until then the firmware keeps its own.
             FanTable = _fanTableChosen && FanTableAvailable && FanTableIndex >= 0 ? (FanTable)(FanTableIndex + 1) : current.FanTable,
             ModeKey = ModeKeyAvailable ? (ModeKeyAction)ModeKeyIndex : current.ModeKey,
+            CpuPower = _cpuPower,
             Safety = current.Safety with
             {
                 RestoreAutoOnExit = RestoreAutoOnExit,
@@ -421,6 +480,9 @@ public sealed partial class FanControlViewModel : ObservableObject
             return;
 
         LockReason = t.FanLock is { } fanLock ? Names.FanLock(fanLock) : null;
+        CpuPowerText = t.CpuPowerLimit1 is { } sustained && t.CpuPowerLimit2 is { } burst
+            ? Strings.Format("Profile_CpuPower", Math.Round(sustained), Math.Round(burst))
+            : null;
         Failsafe = t.Failsafe;
         DustDefenderRunning = t.DustDefenderRunning == true;
         if (t.PowerLimit != _limit)
