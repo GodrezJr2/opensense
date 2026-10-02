@@ -497,9 +497,9 @@
     <value>'자동' 모드에서 팬이 더 빠르게 돌 수 있도록 합니다.</value>
     <comment>Describes CoolBoost (an Acer feature name shown above it). Auto = FanMode_Auto.</comment>
   </data>
-  <data name="Dashboard_Performance.Text" xml:space="preserve">
-    <value>성능</value>
-    <comment>Card title.</comment>
+  <data name="Dashboard_OperatingMode.Text" xml:space="preserve">
+    <value>작동 모드</value>
+    <comment>Card title: the Acer operating mode (Eco, Quiet, Balanced, Performance, Turbo). Same words as Tray_OperatingMode.</comment>
   </data>
   <data name="Dashboard_PowerPlan.Header" xml:space="preserve">
     <value>Windows 전원 관리 계획</value>

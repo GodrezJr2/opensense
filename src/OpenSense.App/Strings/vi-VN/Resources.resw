@@ -497,9 +497,9 @@
     <value>Cho phép chế độ Tự động quay quạt nhanh hơn.</value>
     <comment>Describes CoolBoost (an Acer feature name shown above it). Auto = FanMode_Auto.</comment>
   </data>
-  <data name="Dashboard_Performance.Text" xml:space="preserve">
-    <value>Hiệu năng</value>
-    <comment>Card title.</comment>
+  <data name="Dashboard_OperatingMode.Text" xml:space="preserve">
+    <value>Chế độ hoạt động</value>
+    <comment>Card title: the Acer operating mode (Eco, Quiet, Balanced, Performance, Turbo). Same words as Tray_OperatingMode.</comment>
   </data>
   <data name="Dashboard_PowerPlan.Header" xml:space="preserve">
     <value>Kế hoạch nguồn điện của Windows</value>

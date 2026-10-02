@@ -182,7 +182,10 @@
                         SelectedIndex="{x:Bind Fans.ProfileIndex, Mode=TwoWay}">
                         <toolkit:Segmented.ItemTemplate>
                             <DataTemplate x:DataType="vm:ProfileOption">
-                                <TextBlock Text="{x:Bind Name}" />
+                                <TextBlock
+                                    Text="{x:Bind Name}"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap" />
                             </DataTemplate>
                         </toolkit:Segmented.ItemTemplate>
                     </toolkit:Segmented>
@@ -238,7 +241,7 @@
 
                 <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                     <StackPanel Spacing="12">
-                        <TextBlock x:Uid="Dashboard_Performance" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Uid="Dashboard_OperatingMode" Style="{StaticResource SubtitleTextBlockStyle}" />
 
                         <StackPanel Spacing="12" Visibility="{x:Bind Fans.OperatingModesAvailable, Mode=OneWay}">
                             <toolkit:Segmented
@@ -247,7 +250,10 @@
                                 SelectedIndex="{x:Bind Fans.OperatingModeIndex, Mode=TwoWay}">
                                 <toolkit:Segmented.ItemTemplate>
                                     <DataTemplate x:DataType="vm:OperatingModeOption">
-                                        <TextBlock Text="{x:Bind Name}" />
+                                        <TextBlock
+                                            Text="{x:Bind Name}"
+                                            TextAlignment="Center"
+                                            TextWrapping="Wrap" />
                                     </DataTemplate>
                                 </toolkit:Segmented.ItemTemplate>
                             </toolkit:Segmented>

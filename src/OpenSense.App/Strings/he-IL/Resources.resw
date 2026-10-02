@@ -497,9 +497,9 @@
     <value>מאפשר למצב "אוטומטי" לסובב את המאווררים מהר יותר.</value>
     <comment>Describes CoolBoost (an Acer feature name shown above it). Auto = FanMode_Auto.</comment>
   </data>
-  <data name="Dashboard_Performance.Text" xml:space="preserve">
-    <value>ביצועים</value>
-    <comment>Card title.</comment>
+  <data name="Dashboard_OperatingMode.Text" xml:space="preserve">
+    <value>מצב הפעלה</value>
+    <comment>Card title: the Acer operating mode (Eco, Quiet, Balanced, Performance, Turbo). Same words as Tray_OperatingMode.</comment>
   </data>
   <data name="Dashboard_PowerPlan.Header" xml:space="preserve">
     <value>תוכנית צריכת חשמל של Windows</value>

@@ -497,9 +497,9 @@
     <value>"स्वचालित" मोड को पंखे तेज़ी से घुमाने देता है।</value>
     <comment>Describes CoolBoost (an Acer feature name shown above it). Auto = FanMode_Auto.</comment>
   </data>
-  <data name="Dashboard_Performance.Text" xml:space="preserve">
-    <value>प्रदर्शन</value>
-    <comment>Card title.</comment>
+  <data name="Dashboard_OperatingMode.Text" xml:space="preserve">
+    <value>ऑपरेटिंग मोड</value>
+    <comment>Card title: the Acer operating mode (Eco, Quiet, Balanced, Performance, Turbo). Same words as Tray_OperatingMode.</comment>
   </data>
   <data name="Dashboard_PowerPlan.Header" xml:space="preserve">
     <value>Windows पावर योजना</value>
