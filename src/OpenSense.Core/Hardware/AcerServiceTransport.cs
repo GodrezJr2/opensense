@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Win32;
 
@@ -69,18 +70,60 @@ public static class AcerServiceTransport
             body.CopyTo(packet, 8);
             stream.Write(packet, 0, packet.Length);
 
-            var buffer = new byte[16384];
-            var read = stream.Read(buffer, 0, buffer.Length);
-            if (read == 0)
-                return null;
-            var start = read >= 8 && buffer[0] == 'A' && buffer[1] == 'C' && buffer[2] == 'E' && buffer[3] == 'R' ? 8 : 0;
-            var payload = buffer.AsSpan(start, read - start);
-            var json = key is null ? Encoding.UTF8.GetString(payload) : Decrypt(key, payload.ToArray());
-            return JsonNode.Parse(json);
+            return ParseResponse(ReadResponse(stream, ms => client.ReceiveTimeout = ms), key);
         }
         catch (Exception ex) when (ex is SocketException or IOException or TimeoutException or AggregateException)
         {
             return null;
+        }
+    }
+
+    /// <summary>How long to wait for more of a reply once some of it has come: a reply can arrive in several pieces.</summary>
+    private const int MoreDataTimeoutMs = 300;
+
+    /// <summary>
+    /// A reply as one block of bytes. It is read until the other side has said all of it (nothing more for a moment),
+    /// not with a single read: a long reply (the lighting state is hundreds of lines) comes in more than one TCP segment.
+    /// </summary>
+    /// <param name="setReadTimeout">Sets how long a read waits; used to wait only briefly for the rest once the first piece is in.</param>
+    internal static byte[] ReadResponse(Stream stream, Action<int> setReadTimeout)
+    {
+        var buffer = new byte[65536];
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            int read;
+            try
+            {
+                read = stream.Read(buffer, total, buffer.Length - total);
+            }
+            catch (IOException) when (total > 0)
+            {
+                break; // the quiet after the last piece
+            }
+            if (read == 0)
+                break;
+            total += read;
+            setReadTimeout(MoreDataTimeoutMs);
+        }
+        return buffer.AsSpan(0, total).ToArray();
+    }
+
+    /// <summary>The JSON in a reply (after the 8-byte header, decrypted where the channel is keyed); null when it isn't one.</summary>
+    internal static JsonNode? ParseResponse(byte[] response, byte[]? key)
+    {
+        if (response.Length == 0)
+            return null;
+        var start = response.Length >= 8 && response[0] == 'A' && response[1] == 'C' && response[2] == 'E' && response[3] == 'R' ? 8 : 0;
+        try
+        {
+            var payload = response.AsSpan(start);
+            var json = key is null ? Encoding.UTF8.GetString(payload) : Decrypt(key, payload.ToArray());
+            return JsonNode.Parse(json);
+        }
+        catch (Exception ex) when (ex is JsonException or CryptographicException or ArgumentException or FormatException)
+        {
+            return null; // a reply cut short or not what was asked for: the lights are not worth failing the engine over
         }
     }
 
