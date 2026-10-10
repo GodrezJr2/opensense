@@ -143,6 +143,19 @@ internal sealed class CpuPowerController(ICpuPowerControl control)
     /// <summary>Degrees under the ceiling where the limits may still go up.</summary>
     internal const int Headroom = 5;
 
+    /// <summary>
+    /// How long the temperature is averaged over before it decides to back the limits off: a die spikes ten degrees in a
+    /// burst that heats the chassis not at all, and stepping the limits down on every spike made the clocks (and the
+    /// frame times with them) swing between 20 W and 65 W on a game-like load.
+    /// </summary>
+    internal static readonly TimeSpan SmoothOver = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    /// The lowest a back-off for heat takes PL1, as a share of what it was asked for: lower and the clocks fall far enough
+    /// to stutter, and the firmware's own thermal control stands behind it. Heat that slows the CPU itself goes lower.
+    /// </summary>
+    internal const double BackOffFloor = 0.6;
+
     private PowerLimitRegister? _original;
     private double _pl1, _pl2;
     private double _window;
@@ -151,6 +164,8 @@ internal sealed class CpuPowerController(ICpuPowerControl control)
     private int _overwrites;
     private bool _refused;
     private CpuPowerState _state = CpuPowerState.Idle;
+    private double? _averageC;
+    private DateTime _averagedAt;
 
     /// <param name="onAc">Whether the adapter is in; on battery nothing goes above what the firmware had.</param>
     /// <param name="tempC">The CPU's temperature; without it the limits don't go up.</param>
@@ -175,10 +190,11 @@ internal sealed class CpuPowerController(ICpuPowerControl control)
         var wanted1 = onAc ? target.Pl1W : Math.Min(target.Pl1W, _original!.Pl1W ?? target.Pl1W);
         var wanted2 = onAc ? target.Pl2W : Math.Min(target.Pl2W, _original!.Pl2W ?? target.Pl2W);
 
+        var averageC = Average(tempC, now);
         if (now - _lastStep >= StepEvery)
         {
             _lastStep = now;
-            _state = Advance(wanted1, wanted2, target.Pl1WindowS, onAc, tempC, hot, ceiling, Verify());
+            _state = Advance(wanted1, wanted2, target.Pl1WindowS, onAc, tempC, averageC, hot, ceiling, Verify());
         }
         return Report(settings, target, ceiling, _refused ? CpuPowerState.Refused : _state);
     }
@@ -224,16 +240,32 @@ internal sealed class CpuPowerController(ICpuPowerControl control)
         return true;
     }
 
-    private CpuPowerState Advance(double wanted1, double wanted2, double window, bool onAc, double? tempC, bool hot, int ceiling, bool overwritten)
+    /// <summary>The temperature averaged over <see cref="SmoothOver"/>; it starts again from the reading after a long gap.</summary>
+    private double? Average(double? tempC, DateTime now)
+    {
+        if (tempC is not { } t)
+            return _averageC;
+        var seconds = (now - _averagedAt).TotalSeconds;
+        _averageC = _averageC is not { } average || seconds <= 0 || seconds > 30
+            ? t
+            : average + (t - average) * (1 - Math.Exp(-seconds / SmoothOver.TotalSeconds));
+        _averagedAt = now;
+        return _averageC;
+    }
+
+    private CpuPowerState Advance(double wanted1, double wanted2, double window, bool onAc, double? tempC, double? averageC, bool hot,
+        int ceiling, bool overwritten)
     {
         double next1 = _pl1, next2 = _pl2;
         var state = CpuPowerState.Holding;
-        var tooHot = hot || tempC >= ceiling - 1;
-        var room = tempC is { } t && t < ceiling - Headroom && !hot;
+        // Heat counts when it lasts; a spike only keeps the limits from going up for now.
+        var tooHot = hot || averageC >= ceiling - 1;
+        var room = averageC is { } average && average < ceiling - Headroom && tempC < ceiling - 1 && !hot;
 
         if (tooHot)
         {
-            next1 = Math.Max(CpuPowerPresets.MinPl1W, _pl1 - BackOffStepW);
+            var floor = hot ? CpuPowerPresets.MinPl1W : Math.Max(CpuPowerPresets.MinPl1W, wanted1 * BackOffFloor);
+            next1 = _pl1 > floor ? Math.Max(floor, _pl1 - BackOffStepW) : _pl1;
             next2 = Math.Max(next1, _pl2 - BackOffStepW);
             state = CpuPowerState.BackingOff;
         }

@@ -69,10 +69,71 @@ public sealed class CpuPowerTests
         var cpu = new FakeCpu(35, 65);
         var controller = new CpuPowerController(cpu);
         Run(controller, Settings(CpuPowerPreset.Unleash), 3);
+        // Unleash's ceiling is 95: at 92 there is less than the 5 degrees of room. The temperature is an average, so it
+        // takes a few steps to be one.
+        Run(controller, Settings(CpuPowerPreset.Unleash), 12, temp: 92, from: 3);
         var held = cpu.Pl1;
-        // Unleash's ceiling is 94: at 90 there is less than the 5 degrees of room.
-        var state = Run(controller, Settings(CpuPowerPreset.Unleash), 5, temp: 90, from: 3)!;
+        var state = Run(controller, Settings(CpuPowerPreset.Unleash), 5, temp: 92, from: 15)!;
         Assert.Equal(held, cpu.Pl1);
+        Assert.Equal(CpuPowerState.Holding, state.State);
+    }
+
+    [Fact]
+    public void A_spike_of_heat_does_not_back_the_limits_off()
+    {
+        var cpu = new FakeCpu(115, 157);
+        var controller = new CpuPowerController(cpu);
+        Run(controller, Settings(CpuPowerPreset.Optimize), 12, temp: 70);
+        Assert.Equal(80, cpu.Pl1);
+
+        // A burst takes the die to 99 for one step and it is back at 70: an average that is nowhere near the ceiling.
+        Run(controller, Settings(CpuPowerPreset.Optimize), 1, temp: 99, from: 12);
+        var after = Run(controller, Settings(CpuPowerPreset.Optimize), 4, temp: 70, from: 13)!;
+
+        Assert.Equal(80, cpu.Pl1);
+        Assert.NotEqual(CpuPowerState.BackingOff, after.State);
+    }
+
+    [Fact]
+    public void Heat_that_lasts_backs_the_limits_off_to_a_floor_and_no_further()
+    {
+        var cpu = new FakeCpu(115, 157);
+        var controller = new CpuPowerController(cpu);
+        Run(controller, Settings(CpuPowerPreset.Optimize), 12, temp: 70);
+        Assert.Equal(80, cpu.Pl1);
+
+        // 90 is over Optimize's ceiling (86), not slowing the CPU itself: the limits go down, but not below 60 % of 80 W.
+        var state = Run(controller, Settings(CpuPowerPreset.Optimize), 30, temp: 90, from: 12)!;
+
+        Assert.Equal(80 * CpuPowerController.BackOffFloor, cpu.Pl1);
+        Assert.Equal(CpuPowerState.BackingOff, state.State);
+        Assert.True(cpu.Pl2 >= cpu.Pl1);
+    }
+
+    [Fact]
+    public void A_cpu_that_is_slowing_for_heat_may_go_below_the_floor()
+    {
+        var cpu = new FakeCpu(115, 157);
+        var controller = new CpuPowerController(cpu);
+        Run(controller, Settings(CpuPowerPreset.Optimize), 12, temp: 70);
+
+        Run(controller, Settings(CpuPowerPreset.Optimize), 30, temp: 99, hot: true, from: 12);
+
+        Assert.True(cpu.Pl1 < 80 * CpuPowerController.BackOffFloor);
+    }
+
+    [Fact]
+    public void The_limits_come_back_once_it_has_cooled()
+    {
+        var cpu = new FakeCpu(115, 157);
+        var controller = new CpuPowerController(cpu);
+        Run(controller, Settings(CpuPowerPreset.Optimize), 12, temp: 70);
+        Run(controller, Settings(CpuPowerPreset.Optimize), 30, temp: 90, from: 12);
+        Assert.Equal(48, cpu.Pl1);
+
+        var state = Run(controller, Settings(CpuPowerPreset.Optimize), 30, temp: 70, from: 42)!;
+
+        Assert.Equal(80, cpu.Pl1);
         Assert.Equal(CpuPowerState.Holding, state.State);
     }
 
