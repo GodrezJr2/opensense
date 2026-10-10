@@ -1,3 +1,4 @@
+using OpenSense.Core.Control;
 using OpenSense.Core.Hardware;
 using OpenSense.Core.Hardware.Boot;
 using OpenSense.Core.Hardware.Hid;
@@ -42,6 +43,9 @@ public interface IMachine
     /// </summary>
     bool IsAcerServiceReachable() => false;
 
+    /// <summary>PredatorSense and NitroSense, as running programs; null where a machine has no such software to look for.</summary>
+    ICompetingSoftware? OpenCompetingSoftware() => null;
+
     ILoadMonitor OpenLoadMonitor();
 
     /// <summary>The CPU's and GPU's own temperature sensors, where available.</summary>
@@ -78,6 +82,8 @@ public sealed class WindowsMachine : IMachine
     public AcerSmbios ReadSmbios() => AcerSmbios.Read();
 
     public bool IsAcerServiceReachable() => AcerServiceTransport.IsAvailable();
+
+    public ICompetingSoftware? OpenCompetingSoftware() => new WindowsCompetingSoftware();
 
     public ILoadMonitor OpenLoadMonitor() => new LoadMonitor();
 

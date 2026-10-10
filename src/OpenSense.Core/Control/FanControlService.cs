@@ -31,6 +31,19 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// </summary>
     private static readonly TimeSpan BatteryBoostInterval = TimeSpan.FromSeconds(30);
 
+    // Whether the firmware still holds the operating mode that was set: it is read back every VerifyInterval, and every
+    // QuickVerifyInterval for QuickVerifyWindow after a write (Acer's agents and PredatorSense set theirs in the first
+    // minute after logon). A mode found changed MaxModeLosses times within LossWindow is left alone.
+    private static readonly TimeSpan VerifyInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan QuickVerifyInterval = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan QuickVerifyWindow = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan ModeKeySettle = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan LossWindow = TimeSpan.FromMinutes(10);
+    private const int MaxModeLosses = 3;
+
+    private static readonly TimeSpan CompetingCheckInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan CompetingNoticeEvery = TimeSpan.FromMinutes(10);
+
     private readonly AcerDevice _device;
     private readonly IOperatingModeChannel _modes;
     private readonly IReadOnlyList<FanChannel> _controllable;
@@ -80,6 +93,17 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private bool _touchedFans;
     private bool _defaultModeChecked;
 
+    // The operating mode read back, and Acer's software that may change it.
+    private readonly ICompetingSoftware? _competing;
+    private readonly Dictionary<string, DateTime> _competingNoticed = new();
+    private readonly List<DateTime> _modeLosses = [];
+    private DateTime _nextCompetingCheck = DateTime.MinValue;
+    private DateTime _nextModeVerify = DateTime.MinValue;
+    private DateTime _verifyQuicklyUntil = DateTime.MinValue;
+    private DateTime _modeKeyAt = DateTime.MinValue;
+    private OperatingMode? _modeLossesFor;
+    private OperatingMode? _modeGivenUpFor;
+
     // Safety state.
     private bool _failsafe;
     private int _cpuMisses;
@@ -105,10 +129,12 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// <param name="knownGpuClocks">What the GPU's driver said about clock offsets last time, for this GPU.</param>
     /// <param name="modes">Where the operating mode is set; unless given, <see cref="IOperatingModeChannel.For"/>.</param>
     /// <param name="batteryBoostSeen">The battery-boost flag has been seen on before (state.json), so its 0 counts from the start.</param>
+    /// <param name="competing">Where PredatorSense and NitroSense are looked for; none, they aren't.</param>
     public FanControlService(AcerDevice device, DeviceCapabilities capabilities, ILoadMonitor load, IPowerSource power,
         ControlProfile initialProfile, DirectSensors? direct = null, Func<DateTime>? clock = null, GpuClockRecord? knownGpuClocks = null,
-        IOperatingModeChannel? modes = null, bool batteryBoostSeen = false)
+        IOperatingModeChannel? modes = null, bool batteryBoostSeen = false, ICompetingSoftware? competing = null)
     {
+        _competing = competing;
         _device = device;
         _modes = modes ?? IOperatingModeChannel.For(device, capabilities);
         _batteryBoostSeen = batteryBoostSeen;
@@ -237,7 +263,11 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// <summary>The machine woke up: Acer's agent may restore its own settings, so send ours again after it.</summary>
     public void OnResume()
     {
-        Enqueue(() => _nextBoostRead = DateTime.MinValue); // the battery may have run down meanwhile
+        Enqueue(() =>
+        {
+            _nextBoostRead = DateTime.MinValue; // the battery may have run down meanwhile
+            ForgetModeLosses();
+        });
         ReapplyAfter(TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(12));
     }
 
@@ -268,6 +298,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// </summary>
     public Task<ModeKeyPress> PressModeKeyAsync(ControlProfile profile) => InvokeAsync(_ =>
     {
+        _modeKeyAt = _clock();
         var current = _appliedMode ?? _modes.Read();
         return new ModeKeyPress(current,
             OperatingModePolicy.NextForKey(profile, current, Capabilities.OperatingModes, _limit, Capabilities.ModeRules), _limit);
@@ -377,6 +408,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         var onAc = _power.Read().OnAc;
         _limit = ReadPowerLimit(now, onAc);
 
+        WatchCompetingSoftware(profile, now);
         ApplyOperatingMode(profile, reapply);
         ApplyCoolBoost(profile, reapply);
         ApplyFanTable(profile, reapply);
@@ -563,12 +595,18 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         if (OperatingModePolicy.Target(profile, Capabilities.OperatingModes, _limit, Capabilities.ModeRules) is not { } target)
             return;
         if (target == _appliedMode && !reapply)
+        {
+            VerifyOperatingMode(target);
             return;
+        }
 
         var before = _appliedMode;
         if (_modes.Write(target))
         {
             _appliedMode = target;
+            var now = _clock();
+            _verifyQuicklyUntil = now + QuickVerifyWindow;
+            _nextModeVerify = now + QuickVerifyInterval;
             if (supplyChanged && before is not null && before != target)
                 Notice?.Invoke(new ControlNotice(NoticeKind.OperatingModeChangedByPower) { OperatingMode = target, PowerLimit = _limit });
         }
@@ -576,6 +614,116 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         {
             Notice?.Invoke(new ControlNotice(NoticeKind.OperatingModeRejected) { OperatingMode = target });
         }
+    }
+
+    /// <summary>
+    /// Reads the firmware's mode back now and then: Acer's agents and PredatorSense set their own, and the mode that was
+    /// applied once would stay wrong. A mode found changed is set again (with everything else, as after a resume), a few
+    /// times at most: a firmware that insists on its own is not fought for ever.
+    /// </summary>
+    private void VerifyOperatingMode(OperatingMode target)
+    {
+        var now = _clock();
+        if (_modeGivenUpFor == target || now < _nextModeVerify || now - _modeKeyAt < ModeKeySettle)
+            return;
+        _nextModeVerify = now + (now < _verifyQuicklyUntil ? QuickVerifyInterval : VerifyInterval);
+
+        OperatingMode? actual;
+        try
+        {
+            actual = _modes.Read();
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or AcerWmiAccessDeniedException))
+        {
+            return; // the same failure shows up in the calls that matter
+        }
+        if (actual is not { } found || found == target)
+            return;
+
+        // The count is of one mode: another one chosen starts it again.
+        if (_modeLossesFor != target)
+        {
+            _modeLosses.Clear();
+            _modeLossesFor = target;
+        }
+        _modeLosses.RemoveAll(t => now - t > LossWindow);
+        _modeLosses.Add(now);
+        if (_modeLosses.Count > MaxModeLosses)
+        {
+            _modeGivenUpFor = target;
+            Notice?.Invoke(new ControlNotice(NoticeKind.OperatingModeNotHeld) { OperatingMode = target });
+            return;
+        }
+        Notice?.Invoke(new ControlNotice(NoticeKind.OperatingModeRestored, found.ToString()) { OperatingMode = target });
+        ReapplyAfter(TimeSpan.Zero);
+    }
+
+    private void ForgetModeLosses()
+    {
+        _modeLosses.Clear();
+        _modeGivenUpFor = null;
+    }
+
+    /// <summary>
+    /// PredatorSense and NitroSense set the mode and the fans they last had when they start, over OpenSense's. Where the
+    /// user asked, they are closed, and OpenSense sets its own again; else it only says they run.
+    /// </summary>
+    private void WatchCompetingSoftware(ControlProfile profile, DateTime now)
+    {
+        if (_competing is null || now < _nextCompetingCheck)
+            return;
+        _nextCompetingCheck = now + CompetingCheckInterval;
+
+        IReadOnlyList<string> running;
+        try
+        {
+            running = _competing.Running();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return;
+        }
+        if (running.Count == 0)
+            return;
+
+        if (profile.Safety.CloseCompetingSoftware)
+        {
+            IReadOnlyList<string> closed;
+            try
+            {
+                closed = _competing.Close();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return;
+            }
+            foreach (var name in closed)
+            {
+                if (CompetingNoticeDue(name, now))
+                    Notice?.Invoke(new ControlNotice(NoticeKind.CompetingSoftwareClosed, name));
+            }
+            if (closed.Count > 0)
+            {
+                // It may have written its own on the way in, or on the way out.
+                ForgetModeLosses();
+                ReapplyAfter(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(6));
+            }
+            return;
+        }
+        foreach (var name in running)
+        {
+            if (CompetingNoticeDue(name, now))
+                Notice?.Invoke(new ControlNotice(NoticeKind.CompetingSoftwareRunning, name));
+        }
+    }
+
+    /// <summary>A program is named once in a while, not each time it is found.</summary>
+    private bool CompetingNoticeDue(string name, DateTime now)
+    {
+        if (_competingNoticed.TryGetValue(name, out var last) && now - last < CompetingNoticeEvery)
+            return false;
+        _competingNoticed[name] = now;
+        return true;
     }
 
     /// <summary>

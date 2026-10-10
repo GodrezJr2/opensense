@@ -196,6 +196,9 @@
             <toolkit:SettingsCard x:Uid="Fans_HandBack" HeaderIcon="{ui:FontIcon Glyph=&#xE7E8;}">
                 <ToggleSwitch IsOn="{x:Bind Fans.RestoreAutoOnExit, Mode=TwoWay}" />
             </toolkit:SettingsCard>
+            <toolkit:SettingsCard x:Uid="Fans_CloseCompeting" HeaderIcon="{ui:FontIcon Glyph=&#xE711;}">
+                <ToggleSwitch IsOn="{x:Bind Fans.CloseCompetingSoftware, Mode=TwoWay}" />
+            </toolkit:SettingsCard>
         </StackPanel>
     </ScrollView>
 </Page>

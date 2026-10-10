@@ -55,6 +55,24 @@ public enum NoticeKind
     /// </summary>
     OperatingModeChangedByPower,
     FnLockRejected,
+
+    /// <summary>
+    /// Something else had changed the operating mode (Acer's software, a firmware reset); it was read back and
+    /// <see cref="ControlNotice.OperatingMode"/> is set again (a toast, like the ones for the Mode key).
+    /// </summary>
+    OperatingModeRestored,
+
+    /// <summary>
+    /// The firmware keeps changing the operating mode away from <see cref="ControlNotice.OperatingMode"/>, so OpenSense
+    /// stopped setting it back until the mode, the power supply or the machine's state changes.
+    /// </summary>
+    OperatingModeNotHeld,
+
+    /// <summary>PredatorSense or NitroSense (<see cref="ControlNotice.Detail"/>) is running next to OpenSense and can undo its settings.</summary>
+    CompetingSoftwareRunning,
+
+    /// <summary>OpenSense closed PredatorSense or NitroSense (<see cref="ControlNotice.Detail"/>) and set its own settings again.</summary>
+    CompetingSoftwareClosed,
 }
 
 /// <summary>Something the user should know about, e.g. the firmware rejected a change.</summary>

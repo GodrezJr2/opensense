@@ -28,6 +28,12 @@ public sealed record CurveFanSetting(FanCurve Curve);
 public sealed record SafetySettings
 {
     public bool RestoreAutoOnExit { get; init; } = true;
+
+    /// <summary>
+    /// Close PredatorSense and NitroSense when they run: they set their own operating mode and fans when they start,
+    /// undoing OpenSense's. Off, OpenSense only says they run.
+    /// </summary>
+    public bool CloseCompetingSoftware { get; init; }
 }
 
 /// <summary>Everything the control loop needs to know about what the user wants.</summary>

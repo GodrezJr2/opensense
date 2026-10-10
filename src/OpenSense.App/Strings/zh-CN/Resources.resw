@@ -621,6 +621,28 @@
   <data name="Fans_HandBack.Description" xml:space="preserve">
     <value>当 OpenSense 服务停止（或便携版退出）时，由笔记本电脑自身的风扇控制重新接管。</value>
   </data>
+  <data name="Fans_CloseCompeting.Header" xml:space="preserve">
+    <value>Close PredatorSense and NitroSense</value>
+  </data>
+  <data name="Fans_CloseCompeting.Description" xml:space="preserve">
+    <value>PredatorSense and NitroSense set the operating mode and fans they last had when they start, over OpenSense's. With this on, OpenSense closes them and sets its own again.</value>
+  </data>
+  <data name="Notice_OperatingModeRestored" xml:space="preserve">
+    <value>Another program changed the operating mode to {0}. OpenSense set it back to {1}.</value>
+    <comment>{0} and {1} = operating mode names. Shown as a toast, like the one for the Mode key.</comment>
+  </data>
+  <data name="Notice_OperatingModeNotHeld" xml:space="preserve">
+    <value>The laptop keeps changing its operating mode away from {0}, so OpenSense stopped setting it back. Another program, such as PredatorSense, may be doing it.</value>
+    <comment>{0} = the operating mode OpenSense is asking for.</comment>
+  </data>
+  <data name="Notice_CompetingSoftwareRunning" xml:space="preserve">
+    <value>{0} is running. It can change the operating mode and the fans behind OpenSense's back. Close it, or let OpenSense close it under Fans.</value>
+    <comment>{0} = PredatorSense or NitroSense. Fans = the name of the Fans page.</comment>
+  </data>
+  <data name="Notice_CompetingSoftwareClosed" xml:space="preserve">
+    <value>OpenSense closed {0}, which was changing the operating mode and the fans.</value>
+    <comment>{0} = PredatorSense or NitroSense. Shown as a toast.</comment>
+  </data>
   <data name="Lighting_Title.Text" xml:space="preserve">
     <value>灯光</value>
     <comment>Page title: RGB keyboard lighting.</comment>

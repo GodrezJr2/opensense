@@ -224,6 +224,10 @@ public sealed partial class FanControlViewModel : ObservableObject
     [ObservableProperty]
     public partial bool RestoreAutoOnExit { get; set; } = true;
 
+    /// <summary>PredatorSense and NitroSense are closed when they run, so they can't undo OpenSense's settings.</summary>
+    [ObservableProperty]
+    public partial bool CloseCompetingSoftware { get; set; }
+
     /// <summary>The laptop can run its fans backwards to blow dust out (Dust Defender).</summary>
     [ObservableProperty]
     public partial bool DustDefenderAvailable { get; set; }
@@ -292,6 +296,7 @@ public sealed partial class FanControlViewModel : ObservableObject
         ProfileIndex = ProfileIndexOf(profile);
 
         RestoreAutoOnExit = profile.Safety.RestoreAutoOnExit;
+        CloseCompetingSoftware = profile.Safety.CloseCompetingSoftware;
         DustDefenderAvailable = caps.DustDefender;
         CoolingAvailable = HasFans || CoolBoostAvailable || FanTableAvailable || DustDefenderAvailable;
         DustDefenderRunning = _session.Latest?.DustDefenderRunning == true;
@@ -414,6 +419,8 @@ public sealed partial class FanControlViewModel : ObservableObject
 
     partial void OnRestoreAutoOnExitChanged(bool value) => SchedulePush();
 
+    partial void OnCloseCompetingSoftwareChanged(bool value) => SchedulePush();
+
     [RelayCommand]
     private void SetMode(string mode)
     {
@@ -464,6 +471,7 @@ public sealed partial class FanControlViewModel : ObservableObject
             Safety = current.Safety with
             {
                 RestoreAutoOnExit = RestoreAutoOnExit,
+                CloseCompetingSoftware = CloseCompetingSoftware,
             },
         };
         // Only a mode the user picked is stored: the list shows what runs, which the supply may have chosen instead.

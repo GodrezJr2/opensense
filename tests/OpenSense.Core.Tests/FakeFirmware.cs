@@ -46,6 +46,9 @@ internal sealed class FakeFirmware : IWmiTransport
     /// <summary>Turns a Dust Defender start down with status 0xE5, as a busy embedded controller does.</summary>
     public bool DustDefenderBusy { get; set; }
     public OperatingMode Mode { get; private set; } = OperatingMode.Balanced;
+
+    /// <summary>Another program sets the mode, as PredatorSense does when it starts.</summary>
+    public void ChangeMode(OperatingMode mode) => Mode = mode;
     public bool CoolBoost { get; private set; }
     public List<(string Method, ulong Input)> Calls { get; } = [];
 

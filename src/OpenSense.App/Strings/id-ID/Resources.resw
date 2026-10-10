@@ -621,6 +621,28 @@
   <data name="Fans_HandBack.Description" xml:space="preserve">
     <value>Saat layanan OpenSense berhenti (atau salinan portabel ditutup), kontrol kipas bawaan laptop mengambil alih lagi.</value>
   </data>
+  <data name="Fans_CloseCompeting.Header" xml:space="preserve">
+    <value>Tutup PredatorSense dan NitroSense</value>
+  </data>
+  <data name="Fans_CloseCompeting.Description" xml:space="preserve">
+    <value>PredatorSense dan NitroSense menerapkan mode operasi dan kipas terakhir miliknya saat dibuka, menimpa pengaturan OpenSense. Jika diaktifkan, OpenSense menutupnya dan menerapkan pengaturannya lagi.</value>
+  </data>
+  <data name="Notice_OperatingModeRestored" xml:space="preserve">
+    <value>Program lain mengubah mode operasi ke {0}. OpenSense mengembalikannya ke {1}.</value>
+    <comment>{0} and {1} = operating mode names. Shown as a toast, like the one for the Mode key.</comment>
+  </data>
+  <data name="Notice_OperatingModeNotHeld" xml:space="preserve">
+    <value>Laptop terus mengubah mode operasi dari {0}, jadi OpenSense berhenti mengembalikannya. Program lain, seperti PredatorSense, mungkin penyebabnya.</value>
+    <comment>{0} = the operating mode OpenSense is asking for.</comment>
+  </data>
+  <data name="Notice_CompetingSoftwareRunning" xml:space="preserve">
+    <value>{0} sedang berjalan. Program itu bisa mengubah mode operasi dan kipas tanpa sepengetahuan OpenSense. Tutup, atau biarkan OpenSense menutupnya di halaman Kipas.</value>
+    <comment>{0} = PredatorSense or NitroSense. Fans = the name of the Fans page.</comment>
+  </data>
+  <data name="Notice_CompetingSoftwareClosed" xml:space="preserve">
+    <value>OpenSense menutup {0}, yang mengubah mode operasi dan kipas.</value>
+    <comment>{0} = PredatorSense or NitroSense. Shown as a toast.</comment>
+  </data>
   <data name="Lighting_Title.Text" xml:space="preserve">
     <value>Pencahayaan</value>
     <comment>Page title: RGB keyboard lighting.</comment>

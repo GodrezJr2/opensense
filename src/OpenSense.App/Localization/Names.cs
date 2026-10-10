@@ -10,7 +10,8 @@ public static class Names
 {
     /// <summary>Notices shown as a toast that replaces the one before (tag "opmode"), not as a banner in the window.</summary>
     public static bool IsModeToast(NoticeKind kind) =>
-        kind is NoticeKind.OperatingModeSwitchedByKey or NoticeKind.OperatingModeChangedByPower or NoticeKind.TurboUnavailable;
+        kind is NoticeKind.OperatingModeSwitchedByKey or NoticeKind.OperatingModeChangedByPower or NoticeKind.TurboUnavailable
+            or NoticeKind.OperatingModeRestored or NoticeKind.CompetingSoftwareClosed;
 
     /// <summary>What a BIOS change that did not go through says; empty when the user's own answer explains it (they gave up at the password).</summary>
     public static string BiosProblem(BiosChangeResult result) => result switch
@@ -267,6 +268,14 @@ public static class Names
         NoticeKind.TurboUnavailable => (Strings.Get("Notice_OperatingMode_Title"), notice.PowerLimit == PowerLimit.Adapter
             ? Strings.Get("Notice_TurboNeedsAdapter")
             : Strings.Get("Notice_TurboUnavailable")),
+        // The Detail of a restored mode is the one it was found changed to.
+        NoticeKind.OperatingModeRestored => (Strings.Get("Notice_OperatingMode_Title"), Strings.Format("Notice_OperatingModeRestored",
+            Enum.TryParse(notice.Detail, out OperatingMode changed) ? OperatingMode(changed) : "",
+            notice.OperatingMode is { } restored ? OperatingMode(restored) : "")),
+        NoticeKind.OperatingModeNotHeld => (Strings.Get("Notice_OperatingMode_Title"),
+            Strings.Format("Notice_OperatingModeNotHeld", notice.OperatingMode is { } held ? OperatingMode(held) : "")),
+        NoticeKind.CompetingSoftwareRunning => (FanControl, Strings.Format("Notice_CompetingSoftwareRunning", notice.Detail ?? "")),
+        NoticeKind.CompetingSoftwareClosed => (FanControl, Strings.Format("Notice_CompetingSoftwareClosed", notice.Detail ?? "")),
         _ => (FanControl, Strings.Format("Notice_ControlLoopError", notice.Detail ?? notice.Kind.ToString())),
     };
 

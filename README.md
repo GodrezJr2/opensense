@@ -94,7 +94,7 @@ Download the latest version from [**Releases**](https://github.com/archivesteak/
   It doesn't include the PawnIO driver, so until you install it separately from [PawnIO's releases](https://github.com/namazso/PawnIO.Setup/releases/latest), the CPU temperature comes from the laptop's firmware, which is less exact.
 
 > [!NOTE]
-> Turn off NitroSense (or uninstall it) before using OpenSense, otherwise the two will fight over the fans.
+> Turn off NitroSense (or uninstall it) before using OpenSense, otherwise the two will fight over the fans. PredatorSense and NitroSense also set the operating mode and fans they last had whenever they start: **Fans → Close PredatorSense and NitroSense** has OpenSense close them when they run and set its own again. OpenSense also reads the operating mode back from the firmware and sets it again if something else changed it.
 
 ## Supported laptops
 

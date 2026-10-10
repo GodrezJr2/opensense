@@ -319,7 +319,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     {
         var settings = Current;
         _controller = new FanControlService(device, _capabilities, _load!, _power!, settings.Profile, _sensors, knownGpuClocks: KnownGpuClocks(),
-            batteryBoostSeen: Runtime.BatteryBoostSeen);
+            batteryBoostSeen: Runtime.BatteryBoostSeen, competing: _machine.OpenCompetingSoftware());
         _controller.TelemetryUpdated += OnTelemetry;
         _controller.Notice += OnNotice;
         _controller.GpuClockLimitsChanged += OnGpuClockLimits;
@@ -364,6 +364,12 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
             LogNews(notice.Kind, notice.OperatingMode, notice.PowerLimit);
         else
             LogNotice(notice.Kind, notice.OperatingMode, notice.Detail);
+        // The software it closed had set its own lights on the way in, as Acer's agent does after a resume.
+        if (notice.Kind == NoticeKind.CompetingSoftwareClosed)
+        {
+            _ = _keyboard?.OnResume();
+            _ = _lighting?.OnResume();
+        }
         NoticeRaised?.Invoke(this, notice);
     }
 
