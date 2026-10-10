@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using OpenSense.Core.Hardware;
 using OpenSense.Core.Hardware.Hid;
 using OpenSense.Core.Monitoring;
@@ -39,7 +40,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private readonly Func<DateTime> _clock;
     private readonly Thread _thread;
     private readonly AutoResetEvent _wake = new(false);
-    private readonly ConcurrentQueue<Action> _work = new();
+    private readonly ConcurrentQueue<(Action Run, Action Reject)> _work = new();
+    private readonly object _lifetimeGate = new();
+    private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _started;
     private readonly Dictionary<FanId, CurveFollower> _followers = new();
     private readonly List<DateTime> _reapplyAt = [];
     private readonly object _gate = new();
@@ -85,8 +89,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private DateTime _dustNextCheck;
     private bool _dustChecked;
 
-    // What the power supply allows.
+    // What the power supply allows. The battery-boost flag counts once it has been seen on: one that never is (the
+    // NL16-71G's constant 0) would hold the performance modes back on AC for good.
     private bool? _batteryBoost;
+    private bool _batteryBoostSeen;
     private bool? _weakAdapter;
     private DateTime _nextBoostRead = DateTime.MinValue;
     private bool? _lastOnAc;
@@ -97,18 +103,15 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private readonly CpuPowerController? _cpuPower;
 
     /// <param name="knownGpuClocks">What the GPU's driver said about clock offsets last time, for this GPU.</param>
-    /// <param name="modes">
-    /// Where the operating mode is set: unless given, the embedded controller's HID interface where it sets the modes,
-    /// else the gaming WMI interface.
-    /// </param>
+    /// <param name="modes">Where the operating mode is set; unless given, <see cref="IOperatingModeChannel.For"/>.</param>
+    /// <param name="batteryBoostSeen">The battery-boost flag has been seen on before (state.json), so its 0 counts from the start.</param>
     public FanControlService(AcerDevice device, DeviceCapabilities capabilities, ILoadMonitor load, IPowerSource power,
         ControlProfile initialProfile, DirectSensors? direct = null, Func<DateTime>? clock = null, GpuClockRecord? knownGpuClocks = null,
-        IOperatingModeChannel? modes = null)
+        IOperatingModeChannel? modes = null, bool batteryBoostSeen = false)
     {
         _device = device;
-        _modes = modes ?? (capabilities.EcHid is { Modes.Count: > 0 } ecHid && device.EcHid is { } hid
-            ? new EcHidOperatingModeChannel(device, hid, ecHid.Modes)
-            : new WmiOperatingModeChannel(device));
+        _modes = modes ?? IOperatingModeChannel.For(device, capabilities);
+        _batteryBoostSeen = batteryBoostSeen;
         Capabilities = capabilities;
         _load = load;
         _power = power;
@@ -136,6 +139,9 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
     public Telemetry? Latest { get; private set; }
 
+    /// <summary>Where the loop's time goes, for the diagnostics.</summary>
+    internal LoopTimings Timings { get; } = new();
+
     /// <summary>Raised on the control thread after every sample.</summary>
     public event Action<Telemetry>? TelemetryUpdated;
 
@@ -145,7 +151,22 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// <summary>Raised on the control thread when the GPU's driver reports new clock offset limits (null: it has none).</summary>
     public event Action<GpuClockLimits?>? GpuClockLimitsChanged;
 
-    public void Start() => _thread.Start();
+    /// <summary>Raised on the control thread the first time the battery-boost flag is seen on, for state.json to remember.</summary>
+    public event Action? BatteryBoostSeen;
+
+    public Task Completion => _completion.Task;
+
+    public void Start()
+    {
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_stopping, this);
+            if (_started)
+                throw new InvalidOperationException("The control loop has already started.");
+            _started = true;
+            _thread.Start();
+        }
+    }
 
     public ControlProfile Profile
     {
@@ -160,14 +181,14 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     {
         lock (_gate)
             _profile = profile;
-        _wake.Set();
+        Wake();
     }
 
     /// <summary>Runs <paramref name="action"/> on the control thread (serialised with all other firmware calls).</summary>
     public Task<T> InvokeAsync<T>(Func<AcerDevice, T> action)
     {
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _work.Enqueue(() =>
+        Enqueue(() =>
         {
             try
             {
@@ -177,9 +198,31 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             {
                 tcs.SetException(ex);
             }
-        });
-        _wake.Set();
+        }, () => tcs.TrySetException(new ObjectDisposedException(nameof(FanControlService))));
         return tcs.Task;
+    }
+
+    private void Enqueue(Action action, Action? reject = null)
+    {
+        lock (_lifetimeGate)
+        {
+            if (_stopping)
+            {
+                reject?.Invoke();
+                return;
+            }
+            _work.Enqueue((action, reject ?? (() => { })));
+            _wake.Set();
+        }
+    }
+
+    private void Wake()
+    {
+        lock (_lifetimeGate)
+        {
+            if (!_stopping)
+                _wake.Set();
+        }
     }
 
     /// <summary>Re-sends the full state to the firmware after each delay (e.g. after resume, when Acer's agent may overwrite it).</summary>
@@ -188,13 +231,13 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         var now = _clock();
         lock (_reapplyAt)
             _reapplyAt.AddRange(delays.Select(d => now + d));
-        _wake.Set();
+        Wake();
     }
 
     /// <summary>The machine woke up: Acer's agent may restore its own settings, so send ours again after it.</summary>
     public void OnResume()
     {
-        _work.Enqueue(() => _nextBoostRead = DateTime.MinValue); // the battery may have run down meanwhile
+        Enqueue(() => _nextBoostRead = DateTime.MinValue); // the battery may have run down meanwhile
         ReapplyAfter(TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(12));
     }
 
@@ -204,8 +247,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     /// </summary>
     public void OnPowerSourceChanged()
     {
-        _work.Enqueue(() => _nextBoostRead = DateTime.MinValue);
-        _wake.Set();
+        Enqueue(() => _nextBoostRead = DateTime.MinValue);
     }
 
     /// <summary>
@@ -217,8 +259,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     {
         if (!Capabilities.BatteryBoostFlag)
             return;
-        _work.Enqueue(() => _nextBoostRead = DateTime.MinValue);
-        _wake.Set();
+        Enqueue(() => _nextBoostRead = DateTime.MinValue);
     }
 
     /// <summary>
@@ -250,43 +291,70 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     {
         if (!Capabilities.DustDefender)
             return;
-        _work.Enqueue(() =>
+        Enqueue(() =>
         {
             if (running)
                 DustDefenderStarted(_clock());
             else
                 DustDefenderEnded();
         });
-        _wake.Set();
     }
 
     private void Run()
     {
-        while (!_stopping)
+        Exception? failure = null;
+        try
+        {
+            while (!_stopping)
+            {
+                try
+                {
+                    Tick();
+                }
+                catch (AcerWmiAccessDeniedException)
+                {
+                    Notice?.Invoke(new ControlNotice(NoticeKind.FirmwareAccessDenied));
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Notice?.Invoke(new ControlNotice(NoticeKind.ControlLoopError, ex.Message));
+                }
+                if (!_stopping)
+                    _wake.WaitOne(Interval);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A subscriber or unexpected worker failure must not escape a raw thread and terminate the host.
+            failure = ex;
+        }
+        finally
         {
             try
             {
-                Tick();
+                RestoreOnExit();
             }
-            catch (AcerWmiAccessDeniedException)
+            finally
             {
-                Notice?.Invoke(new ControlNotice(NoticeKind.FirmwareAccessDenied));
+                FinishStopping(failure);
             }
-            catch (Exception ex)
-            {
-                Notice?.Invoke(new ControlNotice(NoticeKind.ControlLoopError, ex.Message));
-            }
-            _wake.WaitOne(Interval);
         }
-        RestoreOnExit();
     }
 
     /// <summary>One control step. Internal so tests can drive the loop deterministically.</summary>
     internal void Tick()
     {
         while (_work.TryDequeue(out var job))
-            job();
+        {
+            if (_stopping)
+                job.Reject();
+            else
+                Timings.Time(LoopPart.Requests, job.Run);
+        }
+        if (_stopping)
+            return;
 
+        var step = Stopwatch.GetTimestamp();
         var now = _clock();
         var reapply = false;
         lock (_reapplyAt)
@@ -305,6 +373,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             Sample();
             _lastSample = now;
         }
+        var control = Stopwatch.GetTimestamp();
         var onAc = _power.Read().OnAc;
         _limit = ReadPowerLimit(now, onAc);
 
@@ -318,6 +387,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             (_cpuThrottle & (CpuThrottleReason.Thermal | CpuThrottleReason.Prochot | CpuThrottleReason.Critical)) != 0, _limits.Cpu, now);
         TrackDustDefender(now);
         var (effective, fanLock, boosting) = ApplyFans(profile, now, reapply);
+        Timings.Add(LoopPart.Control, control);
 
         var telemetry = new Telemetry
         {
@@ -365,33 +435,35 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             DustDefenderRunning = Capabilities.DustDefender ? _dustSince is not null : null,
         };
         Latest = telemetry;
-        TelemetryUpdated?.Invoke(telemetry);
+        Timings.Time(LoopPart.Telemetry, () => TelemetryUpdated?.Invoke(telemetry));
+        Timings.AddStep(step);
     }
 
     private void Sample()
     {
         // Prefer the chips' own sensors; the embedded controller's copy lags and is rounded.
-        var cpu = _direct.Cpu?.Read();
+        var cpu = Timings.Time(LoopPart.CpuSensor, _direct.ReadCpu);
         _cpuOrigin = cpu is null ? TemperatureOrigin.Firmware : TemperatureOrigin.Processor;
-        _cpuTemp = cpu ?? (Capabilities.Has(SensorId.CpuTemperature) && _device.ReadSensor(SensorId.CpuTemperature) is > 0 and var c ? c : null);
-        _cpuWatts = _direct.CpuWatts?.Read();
-        (_cpuPl1, _cpuPl2) = _direct.CpuWatts?.Limits ?? (null, null);
-        _cpuThrottle = _direct.Cpu?.Throttle ?? CpuThrottleReason.None;
-        _cpuBase ??= _direct.CpuWatts?.BaseTdp;
-        _cpuTuning = _direct.CpuWatts?.Tuning();
+        _cpuTemp = cpu ?? SensorReadings.Temperature(Capabilities.Has(SensorId.CpuTemperature) ? ReadFirmwareSensor(SensorId.CpuTemperature) : null);
+        _cpuWatts = Optional(() => _direct.CpuWatts?.Read());
+        (_cpuPl1, _cpuPl2) = Optional(() => _direct.CpuWatts?.Limits) ?? (null, null);
+        _cpuThrottle = Optional(() => _direct.Cpu?.Throttle) ?? CpuThrottleReason.None;
+        _cpuBase ??= Optional(() => _direct.CpuWatts?.BaseTdp);
+        _cpuTuning = Optional(() => _direct.CpuWatts?.Tuning());
 
         var firmwareGpu = Capabilities.Has(SensorId.GpuTemperature);
         if (firmwareGpu || _direct.Gpu is not null)
         {
-            var g = firmwareGpu ? _device.ReadSensor(SensorId.GpuTemperature) : null;
+            var rawGpu = firmwareGpu ? ReadFirmwareSensor(SensorId.GpuTemperature) : null;
+            var g = SensorReadings.Temperature(rawGpu);
             // Is the discrete GPU on? Windows knows where it powers the GPU down itself. The firmware reads 0 while
             // the GPU is off, but after a resume from sleep it can go on reading 0 with the GPU back on (AN515-57).
-            var on = _direct.GpuPower?.IsOn() ?? (g is { } firmware ? firmware > 0 : null);
+            var on = Timings.Time(LoopPart.GpuPowerState, _direct.ReadGpuPower) ?? (g is not null ? true : rawGpu == 0 ? false : (bool?)null);
             _gpuOn = on;
             // Asking the driver while the GPU is off could wake it.
-            var gpu = on == true ? _direct.Gpu?.Read() : null;
-            _gpuWatts = on == true ? _direct.GpuWatts?.Read() : null;
-            _gpuStatus = on == true ? _direct.GpuStatusSensor?.Read() : null;
+            var gpu = on == true ? Timings.Time(LoopPart.GpuDriver, _direct.ReadGpu) : null;
+            _gpuWatts = on == true ? Optional(() => _direct.GpuWatts?.Read()) : null;
+            _gpuStatus = on == true ? Optional(() => _direct.GpuStatusSensor?.Read()) : null;
             _gpuMax = _gpuStatus?.MaxPowerLimitWatts ?? _gpuMax;
             _gpuDefault = _gpuStatus?.DefaultPowerLimitWatts ?? _gpuDefault;
             _gpuVram = _gpuStatus?.MemoryGb ?? _gpuVram;
@@ -402,11 +474,11 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         // After the readings, which is when the sensors learn their chips' limits.
         _limits = _direct.Limits;
 
-        _systemTemp = Capabilities.Has(SensorId.SystemTemperature) && _device.ReadSensor(SensorId.SystemTemperature) is > 0 and var s ? s : null;
+        _systemTemp = SensorReadings.Temperature(Capabilities.Has(SensorId.SystemTemperature) ? ReadFirmwareSensor(SensorId.SystemTemperature) : null);
 
         // Only the RPM is real: the firmware's speed read-back echoes the last boost written.
         foreach (var fan in Capabilities.Fans)
-            _rpm[fan.Id] = _device.ReadSensor(fan.RpmSensor);
+            _rpm[fan.Id] = ReadFirmwareSensor(fan.RpmSensor);
 
         foreach (var fan in _controllable)
         {
@@ -417,13 +489,37 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             }
         }
 
-        (_cpuLoad, _gpuLoad) = _load.Sample();
-        _cpuClock = _load.CpuFrequencyMhz;
+        try
+        {
+            (_cpuLoad, _gpuLoad) = Timings.Time(LoopPart.LoadCounters, _load.Sample);
+            _cpuClock = _load.CpuFrequencyMhz;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _cpuLoad = _gpuLoad = _cpuClock = null;
+        }
+    }
+
+    /// <summary>One of the firmware's sensors, over Acer's WMI interface.</summary>
+    private int? ReadFirmwareSensor(SensorId id) => Timings.Time(LoopPart.FirmwareSensors, () => _device.ReadSensor(id));
+
+    /// <summary>An optional reading from a chip's own sensor: one that throws is no reading, and the control step goes on.</summary>
+    private static T? Optional<T>(Func<T?> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return default;
+        }
     }
 
     /// <summary>
     /// What the power supply allows. The battery-boost flag, and the adapter where the embedded controller reports it,
-    /// are read on AC: at start, when the adapter changes, every 30 s, and from the flag's event.
+    /// are read on AC: at start, when the adapter changes, every 30 s, and from the flag's event. The flag's 0 holds the
+    /// modes back only once the flag has been seen on, here or before (it may be a constant).
     /// </summary>
     private PowerLimit ReadPowerLimit(DateTime now, bool onAc)
     {
@@ -437,6 +533,11 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
                 _batteryBoost = boostHid.ReadStatus(EcHidStatus.BatteryBoost) is { } boost ? boost == 1 : _batteryBoost;
             else if (Capabilities.BatteryBoostFlag)
                 _batteryBoost = _device.GetBatteryBoost() ?? _batteryBoost;
+            if (_batteryBoost == true && !_batteryBoostSeen)
+            {
+                _batteryBoostSeen = true;
+                BatteryBoostSeen?.Invoke();
+            }
             if (adapterHid is not null)
             {
                 _weakAdapter = OperatingModePolicy.WeakAdapter(adapterHid.ReadStatus(EcHidStatus.Adapter),
@@ -445,7 +546,8 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             _nextBoostRead = now + BatteryBoostInterval;
         }
         _lastOnAc = onAc;
-        return OperatingModePolicy.Limit(onAc, Capabilities.BatteryBoostFlag ? _batteryBoost : null, adapterHid is not null ? _weakAdapter : null);
+        return OperatingModePolicy.Limit(onAc, Capabilities.BatteryBoostFlag && _batteryBoostSeen ? _batteryBoost : null,
+            adapterHid is not null ? _weakAdapter : null);
     }
 
     /// <summary>The mode for the power supply (<see cref="OperatingModePolicy.Target"/>); says so when a change of supply changed it.</summary>
@@ -731,12 +833,41 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         }
     }
 
+    /// <summary>Rejects queued work; hardware and the wake handle remain owned until the worker actually exits.</summary>
+    public Task StopAsync()
+    {
+        lock (_lifetimeGate)
+        {
+            if (_stopping)
+                return Completion;
+            _stopping = true;
+            while (_work.TryDequeue(out var job))
+                job.Reject();
+            _wake.Set();
+            if (!_started)
+                FinishStopping();
+            return Completion;
+        }
+    }
+
+    private void FinishStopping(Exception? failure = null)
+    {
+        lock (_lifetimeGate)
+        {
+            _stopping = true;
+            while (_work.TryDequeue(out var job))
+                job.Reject();
+            _wake.Dispose();
+            if (failure is null)
+                _completion.TrySetResult();
+            else
+                _completion.TrySetException(failure);
+        }
+    }
+
     public void Dispose()
     {
-        _stopping = true;
-        _wake.Set();
-        if (_thread.IsAlive)
-            _thread.Join(TimeSpan.FromSeconds(5));
-        _wake.Dispose();
+        if (!StopAsync().Wait(TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("The firmware control loop is still stopping; its resources remain in use.");
     }
 }

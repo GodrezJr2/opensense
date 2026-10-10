@@ -20,6 +20,7 @@ public sealed partial class ShellViewModel(
     BatteryViewModel battery,
     StartupViewModel startup,
     GpuClocksViewModel gpuClocks,
+    BiosSettingsViewModel bios,
     SettingsViewModel settings,
     ToastService toasts) : ObservableObject
 {
@@ -36,6 +37,9 @@ public sealed partial class ShellViewModel(
 
     [ObservableProperty]
     public partial bool LightingAvailable { get; set; }
+
+    [ObservableProperty]
+    public partial bool FansAvailable { get; set; }
 
     public bool IsReady => State == SessionState.Ready;
 
@@ -117,8 +121,10 @@ public sealed partial class ShellViewModel(
         battery.Attach();
         startup.Attach();
         gpuClocks.Attach();
+        bios.Attach();
         settings.Attach();
         LightingAvailable = lighting.Available;
+        FansAvailable = fans.CoolingAvailable;
     }
 
     [RelayCommand]

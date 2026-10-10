@@ -34,10 +34,13 @@ public interface IMachine
     /// <summary>HID devices: Acer's embedded-controller interface on newer models, USB lighting devices.</summary>
     IHidBus OpenHid();
 
-    /// <summary>What NitroSense's installer left behind, used as detection hints.</summary>
-    NitroSenseHints ReadHints();
-
     AcerSmbios ReadSmbios();
+
+    /// <summary>
+    /// AcerService's local API answers (the Acer agent behind Predator Sense). Where the keyboard's RGB doesn't reach the
+    /// WMI class, it is the only way to it. A machine that doesn't say has none.
+    /// </summary>
+    bool IsAcerServiceReachable() => false;
 
     ILoadMonitor OpenLoadMonitor();
 
@@ -72,9 +75,9 @@ public sealed class WindowsMachine : IMachine
 
     public IHidBus OpenHid() => new WindowsHidBus();
 
-    public NitroSenseHints ReadHints() => NitroSenseHints.Read();
-
     public AcerSmbios ReadSmbios() => AcerSmbios.Read();
+
+    public bool IsAcerServiceReachable() => AcerServiceTransport.IsAvailable();
 
     public ILoadMonitor OpenLoadMonitor() => new LoadMonitor();
 

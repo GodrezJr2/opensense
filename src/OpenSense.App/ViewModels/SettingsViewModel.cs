@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -17,7 +18,7 @@ namespace OpenSense.App.ViewModels;
 
 /// <summary>App preferences, capability overrides, diagnostics and about.</summary>
 public sealed partial class SettingsViewModel(SettingsService settings, DeviceSession session, NotificationService notifications, NitroSenseKey nitroSenseKey,
-    OpenShortcut openShortcut)
+    OpenShortcut openShortcut, BiosSettingsViewModel bios, AppCpuUse appCpu)
     : ObservableObject
 {
     private static readonly string AppLogDirectory =
@@ -72,6 +73,23 @@ public sealed partial class SettingsViewModel(SettingsService settings, DeviceSe
 
     [ObservableProperty]
     public partial bool MagKeyOn { get; set; }
+
+    /// <summary>The BIOS has Acer's settings interface, so the user can allow changing its settings.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DangerousBiosSettingsAvailable))]
+    public partial bool BiosSettingsAvailable { get; set; }
+
+    /// <summary>BIOS settings are on the System page and can be changed (all but the dangerous ones).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DangerousBiosSettingsAvailable))]
+    public partial bool BiosSettingsOn { get; set; }
+
+    /// <summary>The dangerous ones can be changed too.</summary>
+    [ObservableProperty]
+    public partial bool DangerousBiosSettingsOn { get; set; }
+
+    /// <summary>The switch for the dangerous BIOS settings shows once the others are on.</summary>
+    public bool DangerousBiosSettingsAvailable => BiosSettingsAvailable && BiosSettingsOn;
 
     [ObservableProperty]
     public partial string LaptopModel { get; set; } = "";
@@ -132,6 +150,9 @@ public sealed partial class SettingsViewModel(SettingsService settings, DeviceSe
         OperatingModesDescription = DescribeOperatingModes(detected);
         MagKeySwitchAvailable = detected.MagKeyLight is not null;
         MagKeyOn = session.Capabilities.Lights.Any(l => l.Location == LightingLocation.MagKey);
+        BiosSettingsAvailable = session.Capabilities.BiosSettings;
+        BiosSettingsOn = session.Settings.Bios.Enabled;
+        DangerousBiosSettingsOn = session.Settings.Bios.Dangerous;
 
         LaptopModel = session.DeviceName ?? Strings.Get("Settings_UnknownModel");
         BiosVersion = session.BiosVersion is { } bios ? Strings.Format("Settings_Bios", bios) : Strings.Get("Settings_BiosUnknown");
@@ -156,7 +177,7 @@ public sealed partial class SettingsViewModel(SettingsService settings, DeviceSe
             else
                 AutostartService.Disable();
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException or COMException)
         {
             notifications.Show(Strings.Get("Notice_Autostart_Title"), Strings.Format("Notice_AutostartFailed", ex.Message), InfoBarSeverity.Error);
         }
@@ -289,6 +310,50 @@ public sealed partial class SettingsViewModel(SettingsService settings, DeviceSe
         _ = session.SetOverridesAsync(session.Settings.Overrides with { MagKey = value == detected ? null : value });
     }
 
+    partial void OnBiosSettingsOnChanged(bool value)
+    {
+        if (_loading)
+            return;
+        // The dangerous ones only ever follow the others.
+        if (!value)
+            DangerousBiosSettingsOn = false;
+        AllowBiosSettings();
+    }
+
+    partial void OnDangerousBiosSettingsOnChanged(bool value)
+    {
+        if (_loading)
+            return;
+        if (value)
+            _ = ConfirmDangerousBiosSettingsAsync();
+        else
+            AllowBiosSettings();
+    }
+
+    /// <summary>Asks twice before the dangerous BIOS settings are switched on; true when the user went through both.</summary>
+    public Func<Task<bool>>? ConfirmDangerousBios { get; set; }
+
+    /// <summary>Only after both questions does the switch reach the engine; otherwise it goes back off.</summary>
+    private async Task ConfirmDangerousBiosSettingsAsync()
+    {
+        if (ConfirmDangerousBios is { } confirm && await confirm())
+        {
+            AllowBiosSettings();
+            return;
+        }
+        _loading = true;
+        DangerousBiosSettingsOn = false;
+        _loading = false;
+    }
+
+    /// <summary>The engine keeps this for every user of the laptop and turns down BIOS changes without it.</summary>
+    private void AllowBiosSettings()
+    {
+        _ = session.SetBiosAccessAsync(new BiosAccess { Enabled = BiosSettingsOn, Dangerous = BiosSettingsOn && DangerousBiosSettingsOn });
+        // The session has the new switches by now (its own change is not announced back), so the System page's list follows.
+        bios.Attach();
+    }
+
     private static string DescribeOperatingModes(DeviceCapabilities detected)
     {
         var modes = detected.FirmwareOperatingModes.Count > 0 ? detected.FirmwareOperatingModes : detected.OperatingModes;
@@ -307,7 +372,7 @@ public sealed partial class SettingsViewModel(SettingsService settings, DeviceSe
     private async Task CopyDiagnosticsAsync()
     {
         var package = new DataPackage();
-        package.SetText(await session.GetDiagnosticsAsync());
+        package.SetText(appCpu.Describe() + await session.GetDiagnosticsAsync());
         Clipboard.SetContent(package);
 
         // Said on the button rather than with a notice.

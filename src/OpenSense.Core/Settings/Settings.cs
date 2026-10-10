@@ -12,6 +12,10 @@ namespace OpenSense.Core.Settings;
 public sealed record UiSettings
 {
     public bool CloseToTray { get; init; } = true;
+
+    /// <summary>The notification that says closing the window leaves OpenSense in the notification area has been shown once.</summary>
+    public bool TrayHintShown { get; init; }
+
     public bool UseFahrenheit { get; init; }
 
     /// <summary>The laptop's NitroSense key opens OpenSense, as it opened NitroSense.</summary>
@@ -66,6 +70,9 @@ public sealed record MachineSettings
     public LightingConfig Lighting { get; init; } = new();
     public PowerSettings Power { get; init; } = new();
     public CapabilityOverrides Overrides { get; init; } = new();
+
+    /// <summary>Whether BIOS settings may be changed (the engine refuses otherwise).</summary>
+    public BiosAccess Bios { get; init; } = new();
 
     /// <summary>Settings written by an older version, in today's form.</summary>
     public MachineSettings Upgrade()

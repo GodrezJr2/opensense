@@ -40,8 +40,10 @@ public partial class App : Application
     {
         _host = BuildHost();
         await _host.StartAsync();
+        AutostartService.Refresh(); // a portable copy's sign-in task follows it when it was moved
 
         _window = Services.GetRequiredService<MainWindow>();
+        Services.GetRequiredService<AppCpuUse>().Watch(_window.AppWindow);
         Services.GetRequiredService<TrayService>().Initialize();
         Services.GetRequiredService<ToastService>().Initialize();
         _instance.Activated += () => _window.DispatcherQueue.TryEnqueue(ShowMainWindow);
@@ -79,6 +81,7 @@ public partial class App : Application
         builder.Services.AddSingleton<NotificationService>();
         builder.Services.AddSingleton<TrayService>();
         builder.Services.AddSingleton<ToastService>();
+        builder.Services.AddSingleton<AppCpuUse>();
         builder.Services.AddSingleton<NavigationService>();
         builder.Services.AddSingleton<NitroSenseKey>();
         builder.Services.AddSingleton<OpenShortcut>();
@@ -100,6 +103,7 @@ public partial class App : Application
         builder.Services.AddSingleton<BatteryViewModel>();
         builder.Services.AddSingleton<StartupViewModel>();
         builder.Services.AddSingleton<GpuClocksViewModel>();
+        builder.Services.AddSingleton<BiosSettingsViewModel>();
         builder.Services.AddSingleton<SettingsViewModel>();
         builder.Services.AddSingleton<UpdateViewModel>();
 
@@ -138,18 +142,31 @@ public partial class App : Application
         if (_exiting)
             return;
         _exiting = true;
-        if (_host is not null)
+        if (_host is { } host)
         {
-            Services.GetRequiredService<NitroSenseKey>().Dispose();
-            Services.GetRequiredService<OpenShortcut>().Dispose();
-            Services.GetRequiredService<ToastService>().Dispose();
-            Services.GetRequiredService<TrayService>().Dispose();
-            Services.GetRequiredService<DeviceSession>().Dispose(); // the service keeps control; a hosted engine hands the fans back
-            Services.GetRequiredService<SettingsService>().Dispose();
-            _host.Dispose();
+            // Each part closes whatever the one before did: a hosted engine must still hand the fans back.
+            Close(Services.GetRequiredService<NitroSenseKey>);
+            Close(Services.GetRequiredService<OpenShortcut>);
+            Close(Services.GetRequiredService<ToastService>);
+            Close(Services.GetRequiredService<TrayService>);
+            Close(Services.GetRequiredService<DeviceSession>); // the service keeps control; a hosted engine hands the fans back
+            Close(Services.GetRequiredService<SettingsService>);
+            Close(() => host);
         }
         Log.CloseAndFlush();
         Exit();
+    }
+
+    private static void Close<T>(Func<T> part) where T : IDisposable
+    {
+        try
+        {
+            part().Dispose();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error(ex, "Closing {Part} failed", typeof(T).Name);
+        }
     }
 
     public bool IsExiting => _exiting;

@@ -39,9 +39,10 @@ Pomóż przetłumaczyć OpenSense i tę stronę na swój język: zobacz [Tłumac
 - **Bezpieczne domyślnie.** Ochrona przed dławieniem rozkręca wentylatory do pełnej prędkości, gdy procesor zbliża się do progu dławienia, a gdy czujnik lub OpenSense przestanie działać, sterowanie ponownie przejmuje oprogramowanie układowe.
 - **Wydajność.** Tryby pracy, CoolBoost, podkręcanie GPU dla każdego trybu i plany zasilania systemu Windows. Klawisz trybu przełącza tryby, a na baterii działa osobny tryb. W Predatorach z 2024 roku i nowszych dochodzi do tego podkręcanie GPU ustawione przez Acera dla każdego trybu.
 - **Podświetlenie.** Stałe kolory dla każdej strefy klawiatury albo efekty Oddychanie, Neon, Fala, Przesuwanie, Powiększanie, Meteor i Migotanie. Także listwy świetlne, Infinity Mirror, InfiniteRing, logo oraz klawisze Turbo i trybu, każde z własnymi efektami. Klawiatury z podświetleniem każdego klawisza osobno i klawisze MagForce przyjmują kolor dla każdego klawisza i mają własne efekty.
-- **Klawiatura i ekran.** Automatyczne wyłączanie podświetlenia, blokada klawisza Windows, Overdrive LCD i przełącznik GPU (MUX).
+- **Klawiatura i ekran.** Automatyczne wyłączanie podświetlenia, blokada klawisza Windows, blokada Fn, Overdrive LCD i przełącznik GPU (MUX).
 - **Bateria.** Kondycja baterii (pozostała pojemność i cykle ładowania), zatrzymywanie ładowania na 80%, kalibracja baterii i ładowanie urządzeń USB po wyłączeniu laptopa.
 - **Uruchamianie.** Animacja i dźwięk uruchamiania oraz własne logo uruchamiania w laptopach, które to obsługują.
+- **Ustawienia BIOS.** W laptopach, których BIOS je udostępnia (Predatory z 2025 roku), każde ustawienie BIOS można zmienić na stronie **System**, gdy zezwolisz na to w **Ustawieniach**. Niebezpieczne mają własny przełącznik.
 - **Bez monitów administratora.** Niewielka usługa w tle stosuje Twoje ustawienia od momentu uruchomienia, a klawisz NitroSense otwiera aplikację.
 - **Twój język.** 36 języków, zgodnie z systemem Windows lub według wyboru w ustawieniach.
 
@@ -65,19 +66,6 @@ Laptopy Acer z interfejsem oprogramowania układowego dla graczy, z którego kor
 OpenSense powstał na **Nitro 5 AN515-57**.
 
 Wypróbowałeś na innym modelu? [Otwórz issue](https://github.com/archivesteak/opensense/issues) i wklej dane diagnostyczne z **Ustawienia → Rozwiązywanie problemów → Kopiuj**.
-
-### Zrzuty oprogramowania układowego
-
-Czegoś brakuje albo coś nie działa dobrze na twoim laptopie? Wyślij kopię jego oprogramowania układowego, a zostanie przeanalizowana, żeby ustalić, jak to działa w twoim modelu. Tak rozpracowano wentylatory AN515-57: jego oprogramowanie układowe pokazało, że ich prędkość można zwiększać tylko co 10%, a wbudowana krzywa wentylatorów nic nie zmienia. [Ten poradnik](firmware/dump-firmware-pl.md) wyjaśnia, jak zrobić kopię z pendrive’a z Linuksem, niczego nie zmieniając w laptopie.
-
-Kopia pochodzi wyłącznie z układu, w którym zapisane jest oprogramowanie laptopa: nie ma w niej żadnych twoich plików, kont ani niczego innego z systemu Windows. Jedyne dane osobowe, jakie zawiera, to numer seryjny laptopa i klucz licencyjny systemu Windows zapisany przez Acera w oprogramowaniu układowym. Jeśli wolisz ich nie publikować, w poradniku znajdziesz sposób, żeby wysłać kopię prywatnie.
-
-Najbardziej pomogłyby te modele:
-
-- **Nitro AN515-46, AN515-47, AN515-58, AN517-42, AN517-43 i AN517-55**: jedyne modele, w których oprogramowanie Acera ustawia opcję **Krzywa wentylatorów**, więc jedyne, w których OpenSense ją pokazuje. Nikt jeszcze nie sprawdził, co w nich zmienia.
-- **Predator Helios 16 i 18 z lat 2024 i 2025 (PH16-72, PH18-72, PH16-73, PH18-73) oraz Helios Neo 16 (PHN16-72)**: w Predatorach z 2024 roku i nowszych tryby pracy i fabryczne podkręcanie GPU od Acera działają przez interfejs HID kontrolera wbudowanego, którym OpenSense steruje wyłącznie na podstawie oprogramowania Acera.
-- **Predator Helios 16 i 18 z 2023 roku (PH16-71, PH18-71) oraz Helios 3D 15 (PH3D15-71)**: tylna listwa świetlna, której efekty generuje kontroler wbudowany.
-- **Każdy inny model**: OpenSense na każdym laptopie zwiększa prędkość wentylatorów co 10%, bo kontroler AN515-57 pomija wartości pośrednie. Zrzut pokaże, czy twój robi tak samo.
 
 ## Tłumaczenia
 

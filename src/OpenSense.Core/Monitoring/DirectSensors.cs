@@ -66,12 +66,60 @@ public sealed class DirectSensors : IDisposable
     public IGpuClockControl? GpuClocks { get; }
 
     /// <summary>Where CPU temperatures come from, and why when it is the fallback.</summary>
-    public SensorStatus CpuStatus { get; }
+    public SensorStatus CpuStatus { get; private set; }
 
-    public SensorStatus GpuStatus { get; }
+    public SensorStatus GpuStatus { get; private set; }
 
     /// <summary>Where the chips start slowing down, as far as their sensors have said so by now.</summary>
-    public ThermalLimits Limits => new(Cpu?.Limit ?? _cpuDefaultLimit, Gpu?.Limit ?? ThermalLimits.GpuDefault);
+    public ThermalLimits Limits => new(ReadLimit(Cpu, _cpuDefaultLimit), ReadLimit(Gpu, ThermalLimits.GpuDefault));
+
+    private static int ReadLimit(ITemperatureSensor? sensor, int fallback)
+    {
+        try
+        {
+            return sensor?.Limit is >= 60 and <= 130 and var limit ? limit : fallback;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return fallback;
+        }
+    }
+
+    public double? ReadCpu() => Read(Cpu, status => CpuStatus = status);
+
+    public double? ReadGpu() => Read(Gpu, status => GpuStatus = status);
+
+    /// <summary>What the log should hear about a reading the CPU's sensor discarded since the last call, or null.</summary>
+    public string? TakeCpuGlitchNote() => Cpu?.TakeGlitchNote();
+
+    private static double? Read(ITemperatureSensor? sensor, Action<SensorStatus> status)
+    {
+        if (sensor is null)
+            return null;
+        try
+        {
+            var reading = SensorReadings.Temperature(sensor.Read());
+            status(reading is null ? SensorStatus.Failed(SensorProblem.NoReading) : sensor.Status);
+            return reading;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            status(SensorStatus.Failed(SensorProblem.NoReading, ex.Message));
+            return null;
+        }
+    }
+
+    public bool? ReadGpuPower()
+    {
+        try
+        {
+            return GpuPower?.IsOn();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Opens both sensors. Needs an elevated process for the CPU sensor. The discrete GPU's is NVIDIA's own library
@@ -81,26 +129,55 @@ public sealed class DirectSensors : IDisposable
     public static DirectSensors Open()
     {
         SensorStatus? cpuFailure = null, gpuFailure = null;
-        var cpu = CpuTemperatureSensor.TryOpen((problem, detail) => cpuFailure = SensorStatus.Failed(problem, detail));
+        var cpu = TryOpen(() => CpuTemperatureSensor.TryOpen((problem, detail) => cpuFailure = SensorStatus.Failed(problem, detail)),
+            ex => cpuFailure = SensorStatus.Failed(SensorProblem.NoReading, ex.Message));
 
         var adapters = GpuAdapters.TryEnumerate();
         var discrete = GpuAdapters.FindDiscrete(adapters);
-        var nvml = discrete is null or { VendorId: GpuAdapter.NvidiaVendorId } ? NvmlLibrary.TryOpen(discrete) : null;
-        ITemperatureSensor? gpu = nvml is null ? null : NvmlGpuSensor.TryOpen(nvml);
-        var clocks = nvml is null ? null : NvmlGpuClocks.TryOpen(nvml, discrete?.PnpHardwareId ?? "");
+        var nvml = discrete is null or { VendorId: GpuAdapter.NvidiaVendorId }
+            ? TryOpen(() => NvmlLibrary.TryOpen(discrete), ex => gpuFailure = SensorStatus.Failed(SensorProblem.NoReading, ex.Message)) : null;
+        ITemperatureSensor? gpu = nvml is null ? null : TryOpen(() => NvmlGpuSensor.TryOpen(nvml),
+            ex => gpuFailure = SensorStatus.Failed(SensorProblem.NoReading, ex.Message));
+        var clocks = nvml is null ? null : TryOpen(() => NvmlGpuClocks.TryOpen(nvml, discrete?.PnpHardwareId ?? ""), _ => { });
         if (gpu is null && discrete is not null)
-            gpu = WindowsGpuSensor.TryOpen(discrete, (problem, detail) => gpuFailure = SensorStatus.Failed(problem, detail));
+            gpu = TryOpen(() => WindowsGpuSensor.TryOpen(discrete, (problem, detail) => gpuFailure = SensorStatus.Failed(problem, detail)),
+                ex => gpuFailure = SensorStatus.Failed(SensorProblem.NoReading, ex.Message));
         else if (gpu is null)
             gpuFailure = SensorStatus.Failed(SensorProblem.NoDiscreteGpu);
 
         // Only needed to know when the driver may be asked. One GPU can be listed twice (e.g. again for a virtual display).
         var onlyGpu = adapters.Select(a => a.PnpHardwareId).Distinct().Count() == 1;
-        var gpuPower = gpu is not null && discrete is not null ? WindowsGpuPowerState.TryOpen(discrete, onlyGpu) : null;
-        var cpuWatts = cpu is null ? null : IntelPackagePower.TryOpen();
-        var gpuWatts = nvml is null ? null : NvmlGpuPower.TryOpen(nvml);
-        var gpuReadings = nvml is null ? null : NvmlGpuStatusSensor.TryOpen(nvml);
+        var gpuPower = gpu is not null && discrete is not null ? TryOpen(() => WindowsGpuPowerState.TryOpen(discrete, onlyGpu), _ => { }) : null;
+        var cpuWatts = cpu is null ? null : TryOpen(() => IntelPackagePower.TryOpen(), _ => { });
+        var gpuWatts = nvml is null ? null : TryOpen(() => NvmlGpuPower.TryOpen(nvml), _ => { });
+        var gpuReadings = nvml is null ? null : TryOpen<IGpuStatusSensor>(() => NvmlGpuStatusSensor.TryOpen(nvml), _ => { });
         return new DirectSensors(cpu, gpu, gpuPower, cpu?.Status ?? cpuFailure ?? SensorStatus.NotUsed, gpu?.Status ?? gpuFailure ?? SensorStatus.NotUsed,
-            clocks, nvml, CpuTemperatureSensor.DefaultLimit(), cpuWatts, gpuWatts, gpuReadings);
+            clocks, nvml, DefaultCpuLimit(), cpuWatts, gpuWatts, gpuReadings);
+    }
+
+    private static int DefaultCpuLimit()
+    {
+        try
+        {
+            return CpuTemperatureSensor.DefaultLimit();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return ThermalLimits.IntelCpuDefault;
+        }
+    }
+
+    private static T? TryOpen<T>(Func<T?> open, Action<Exception> failure) where T : class
+    {
+        try
+        {
+            return open();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failure(ex);
+            return null;
+        }
     }
 
     public void Dispose()

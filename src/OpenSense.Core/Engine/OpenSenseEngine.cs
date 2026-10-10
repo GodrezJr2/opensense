@@ -17,6 +17,9 @@ namespace OpenSense.Core.Engine;
 public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
 {
     private static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(400);
+
+    /// <summary>How long stopping waits for work in flight (a firmware call, a light's write) before it goes on without it.</summary>
+    private static readonly TimeSpan StopWait = TimeSpan.FromSeconds(10);
     private static readonly string Version =
         typeof(OpenSenseEngine).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
 
@@ -77,12 +80,19 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     public Task<IReadOnlyList<Telemetry>> GetHistoryAsync(int seconds, CancellationToken cancellationToken = default) =>
         Task.FromResult(_history.Last(TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 3600))));
 
-    /// <summary>Detects the laptop and starts controlling it. Never throws; see <see cref="State"/>.</summary>
+    /// <summary>
+    /// Detects the laptop and starts controlling it. Never throws; see <see cref="State"/>. The HID devices, the load
+    /// counters and the chips' own sensors are optional: without them the firmware's readings stand in. A start that
+    /// fails at any other step closes at once what it had opened.
+    /// </summary>
     public void Start()
     {
         _sessionGate.Wait();
         try
         {
+            _deviceName = _machine.Model;
+            _biosVersion = _machine.BiosVersion;
+            _serialNumber = _machine.SerialNumber;
             _transport = _machine.OpenFirmware();
             if (!new AcerDevice(_transport).IsPresent)
             {
@@ -90,14 +100,11 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
                 LogUnsupported();
                 return;
             }
-            _hid = _machine.OpenHid();
-            _ecHid = EcHidDevice.Open(_hid);
+            _hid = OpenOptional(_machine.OpenHid, "HID devices", _ => new UnavailableHidBus());
+            _ecHid = OpenOptional(() => EcHidDevice.Open(_hid), "the embedded controller's HID interface", _ => null);
             var device = Device();
 
-            _deviceName = _machine.Model;
-            _biosVersion = _machine.BiosVersion;
-            _serialNumber = _machine.SerialNumber;
-            _probed = DetectBootLogo(CapabilityProbe.Probe(device, _machine.ReadHints(), _machine.ReadSmbios(), _deviceName)) with
+            _probed = DetectBootLogo(CapabilityProbe.Probe(device, _machine.ReadSmbios(), _deviceName, _machine.IsAcerServiceReachable)) with
             {
                 ModeKey = Runtime.ModeKeySeen,
             };
@@ -107,8 +114,9 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
 
             _firmware = FirmwareState.Read(device, _capabilities);
             _keyboardAtStart = KeyboardState.Read(device, _capabilities.Keyboard, _hidLights.KeyboardSettings ? _hidLights.Keyboard : null);
-            _load = _machine.OpenLoadMonitor();
-            _sensors = _machine.OpenSensors();
+            _load = OpenOptional(_machine.OpenLoadMonitor, "load counters", _ => new UnavailableLoadMonitor());
+            _sensors = OpenOptional(_machine.OpenSensors, "the chips' temperature sensors", ex => new DirectSensors(null, null, null,
+                SensorStatus.Failed(SensorProblem.NoReading, ex.Message), SensorStatus.Failed(SensorProblem.NoReading, ex.Message)));
             _power = _machine.OpenPowerSource();
             LogSensors(_sensors.CpuStatus, _sensors.GpuStatus);
 
@@ -126,6 +134,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
             LogStartFailed(ex);
             _error = ex.Message;
             _state = EngineState.Failed;
+            Shutdown();
         }
         finally
         {
@@ -204,6 +213,9 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     {
         if (_controller is not { } controller || !_capabilities.GpuModeSwitch)
             return false;
+        // A value the BIOS didn't list is not sent (0 and anything above Automatic are no mode at all).
+        if (mode is < GpuMode.Hybrid or > GpuMode.Automatic || (mode == GpuMode.Automatic && !_capabilities.GpuModeAutomatic))
+            return false;
         var ok = await controller.InvokeAsync(d => d.SetGpuMode(mode)).ConfigureAwait(false);
         if (ok && _firmware is { } firmware)
             _firmware = firmware with { GpuMode = mode };
@@ -232,8 +244,30 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
         }
     }
 
-    /// <summary>The firmware through both of its interfaces: WMI, and the embedded controller's HID one where there is one.</summary>
-    private AcerDevice Device() => new(_transport!) { EcHid = _ecHid };
+    /// <summary>
+    /// The firmware through both of its interfaces (WMI, and the embedded controller's HID one where there is one), with
+    /// what the model's reviewed BIOS is known to do.
+    /// </summary>
+    private AcerDevice Device() => new(_transport!) { EcHid = _ecHid, FirmwareProfile = AcerFirmwareProfile.For(_deviceName, _biosVersion) };
+
+    /// <summary>Opens a part the engine can do without; on a failure, logs it and goes on with <paramref name="fallback"/>.</summary>
+    private T OpenOptional<T>(Func<T> open, string what, Func<Exception, T> fallback)
+    {
+        try
+        {
+            return open();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not AcerWmiAccessDeniedException)
+        {
+            LogOptionalFailed(ex, what);
+            return fallback(ex);
+        }
+    }
+
+    /// <summary>Work that goes on after the call that started it: a failure is logged rather than lost.</summary>
+    private void ObserveWork(Task work, string what) =>
+        _ = work.ContinueWith(t => LogBackgroundFailed(t.Exception!.GetBaseException(), what), CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
     private RuntimeState Runtime
     {
@@ -284,10 +318,12 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     private void StartControl(AcerDevice device)
     {
         var settings = Current;
-        _controller = new FanControlService(device, _capabilities, _load!, _power!, settings.Profile, _sensors, knownGpuClocks: KnownGpuClocks());
+        _controller = new FanControlService(device, _capabilities, _load!, _power!, settings.Profile, _sensors, knownGpuClocks: KnownGpuClocks(),
+            batteryBoostSeen: Runtime.BatteryBoostSeen);
         _controller.TelemetryUpdated += OnTelemetry;
         _controller.Notice += OnNotice;
         _controller.GpuClockLimitsChanged += OnGpuClockLimits;
+        _controller.BatteryBoostSeen += OnBatteryBoostSeen;
         _controller.Start();
 
         StartKeyboard(_controller, settings.Keyboard);
@@ -299,8 +335,10 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     private void StopControl()
     {
         StopPower();
-        StopLighting();
-        StopKeyboard();
+        // The lights and the keyboard finish their work while the control thread they use still runs.
+        var stopped = DrainHidServicesAsync(StopLighting(), StopKeyboard());
+        if (!stopped.Wait(StopWait))
+            LogStopFailed(new TimeoutException("The lights and the keyboard settings did not stop in time."));
         if (_controller is { } controller)
         {
             controller.TelemetryUpdated -= OnTelemetry;
@@ -316,6 +354,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
         var latest = telemetry with { Battery = _powerService?.Telemetry() };
         _latest = latest;
         _history.Add(latest);
+        NoteSensorGlitch();
         TelemetryUpdated?.Invoke(this, latest);
     }
 
@@ -339,6 +378,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
                 BacklightAutoOff = _keyboardAtStart?.BacklightAutoOff,
                 WindowsKey = _keyboardAtStart?.WindowsKey,
                 LcdOverdrive = _keyboardAtStart?.LcdOverdrive,
+                FnLock = _keyboardAtStart?.FnLock,
             },
         });
         Flush();
@@ -378,21 +418,64 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
         _sessionGate.Wait();
         try
         {
-            StopFirmwareEvents();
-            StopControl();
-            StopHid();
+            Shutdown();
             _saveTimer.Dispose();
             Flush();
-            _sensors.Dispose();
-            _load?.Dispose();
-            _ecHid?.Dispose();
-            _transport?.Dispose();
         }
         finally
         {
             _sessionGate.Release();
         }
         _sessionGate.Dispose();
+    }
+
+    /// <summary>
+    /// Stops what <see cref="Start"/> began and closes what it opened, last first. Each step runs whatever the one before
+    /// did, and leaves nothing to close twice, so a failed start can run it at once and <see cref="Dispose"/> again later.
+    /// </summary>
+    private void Shutdown()
+    {
+        Step(StopFirmwareEvents);
+        Step(StopControl);
+        Step(() =>
+        {
+            if (!StopHidAsync().Wait(StopWait))
+                throw new TimeoutException("The HID devices did not close in time.");
+        });
+        Step(() =>
+        {
+            var sensors = _sensors;
+            _sensors = DirectSensors.None;
+            if (!ReferenceEquals(sensors, DirectSensors.None))
+                sensors.Dispose();
+        });
+        Step(() =>
+        {
+            _load?.Dispose();
+            _load = null;
+        });
+        Step(() =>
+        {
+            _ecHid?.Dispose();
+            _ecHid = null;
+        });
+        Step(() =>
+        {
+            _transport?.Dispose();
+            _transport = null;
+        });
+
+        void Step(Action step)
+        {
+            try
+            {
+                step();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                LogStopFailed(ex);
+            }
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Device}: capability probe\n{Diagnostics}")]
@@ -403,6 +486,9 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Temperature sources: CPU {Cpu}; GPU {Gpu}")]
     private partial void LogSensors(SensorStatus cpu, SensorStatus gpu);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "CPU temperature sensor: {Note}")]
+    private partial void LogSensorGlitch(string note);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Engine failed to start")]
     private partial void LogStartFailed(Exception ex);
@@ -424,4 +510,13 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Could not save settings to {Path}")]
     private partial void LogSaveFailed(Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not open {What}; going on without it")]
+    private partial void LogOptionalFailed(Exception ex, string what);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Background work failed: {What}")]
+    private partial void LogBackgroundFailed(Exception ex, string what);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A step of stopping failed; the others went on")]
+    private partial void LogStopFailed(Exception ex);
 }
