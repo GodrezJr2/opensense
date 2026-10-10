@@ -192,6 +192,25 @@ public class ModeGuardTests
     }
 
     [Fact]
+    public void A_program_that_keeps_coming_back_is_closed_each_time_but_sends_the_settings_once_a_minute()
+    {
+        var competing = new FakeCompeting();
+        var rig = Create(Performance(closeCompeting: true), competing);
+        rig.Service.Tick();
+        competing.Start("PredatorSense");
+        rig.Step(); // closed, settings to be sent a second and six seconds on
+        rig.Step(8); // both sent
+        var writes = rig.ModeWrites;
+
+        competing.Start("PredatorSense");
+        rig.Step(); // closed again, within the minute
+        rig.Step(8);
+
+        Assert.Equal(2, competing.Closes);
+        Assert.Equal(writes, rig.ModeWrites);
+    }
+
+    [Fact]
     public void Nothing_looks_for_competing_software_without_a_place_to_look()
     {
         var rig = Create(Performance(closeCompeting: true));

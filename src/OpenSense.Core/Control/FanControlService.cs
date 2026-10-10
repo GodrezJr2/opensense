@@ -44,6 +44,9 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private static readonly TimeSpan CompetingCheckInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CompetingNoticeEvery = TimeSpan.FromMinutes(10);
 
+    // Closing it sends the settings again; a program that keeps coming back is closed each time, but sends them once a minute.
+    private static readonly TimeSpan CompetingReapplyEvery = TimeSpan.FromMinutes(1);
+
     private readonly AcerDevice _device;
     private readonly IOperatingModeChannel _modes;
     private readonly IReadOnlyList<FanChannel> _controllable;
@@ -98,6 +101,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private readonly Dictionary<string, DateTime> _competingNoticed = new();
     private readonly List<DateTime> _modeLosses = [];
     private DateTime _nextCompetingCheck = DateTime.MinValue;
+    private DateTime _lastCompetingReapply = DateTime.MinValue;
     private DateTime _nextModeVerify = DateTime.MinValue;
     private DateTime _verifyQuicklyUntil = DateTime.MinValue;
     private DateTime _modeKeyAt = DateTime.MinValue;
@@ -702,9 +706,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
                 if (CompetingNoticeDue(name, now))
                     Notice?.Invoke(new ControlNotice(NoticeKind.CompetingSoftwareClosed, name));
             }
-            if (closed.Count > 0)
+            if (closed.Count > 0 && now - _lastCompetingReapply >= CompetingReapplyEvery)
             {
                 // It may have written its own on the way in, or on the way out.
+                _lastCompetingReapply = now;
                 ForgetModeLosses();
                 ReapplyAfter(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(6));
             }
