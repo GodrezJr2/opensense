@@ -109,6 +109,16 @@ public sealed record AcerFirmwareProfile
         ["NL16-71G"] = "1.19", ["PH717-71"] = "1.10", ["ANV15-51"] = "1.53",
     };
 
+    /// <summary>
+    /// Models whose firmware reports EC light bars (SMBIOS record 0x17 and a <c>GetGamingLED(0x10)</c> layout) that the
+    /// chassis doesn't have: the Helios Neo 16 PHN16-72 has no bar, and every change sent to one is rejected.
+    /// </summary>
+    private static readonly string[] NoPhysicalLightBars = ["PHN16-72"];
+
+    /// <summary>The model has no light bar, whatever its firmware reports.</summary>
+    public static bool LacksLightBars(string? model) => model is not null && NoPhysicalLightBars.Any(c =>
+        Regex.IsMatch(model, $"(?<![A-Za-z0-9]){Regex.Escape(c)}(?![A-Za-z0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+
     /// <param name="ecHid">
     /// The embedded controller's HID interface answered: it tells the ANV15-51's boards apart (ZYQ's EC has one, ZYP's
     /// hasn't; its BIOS reports gaming interface 2.94 there, 2.93 on ZYP).

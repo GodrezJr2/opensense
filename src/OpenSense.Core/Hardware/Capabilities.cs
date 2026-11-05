@@ -476,7 +476,10 @@ public static class CapabilityProbe
         // GetGamingLEDBehavior(1) answers with status 0 (AN515-57: no bars, status 2; no logo, status 1).
         var layout = device.LightBarLayout();
         Log($"GetGamingLED(0x10) = {(layout is { } l ? $"status {l.Status}, " + (l.Data is { } d ? Convert.ToHexString(d) : "no layout") : "error")}");
-        IReadOnlyList<LightBar> lightBars = smbios.HasEcLightBars && layout is { Status: 0, Data: { } bytes }
+        var noBars = AcerFirmwareProfile.LacksLightBars(model);
+        if (noBars)
+            Log("Light bars: none on this model, whatever the firmware reports");
+        IReadOnlyList<LightBar> lightBars = !noBars && smbios.HasEcLightBars && layout is { Status: 0, Data: { } bytes }
             ? LightBarProtocol.DecodeLayout(bytes, smbios.LedArrayLength >= 16)
             : [];
         if (lightBars.Count > 0)

@@ -682,7 +682,7 @@ public sealed class SimulatedMachine(SimulatedModel model) : IMachine
     public string? Model => ModelName ?? model switch
     {
         SimulatedModel.Nitro2022 => "Nitro AN515-58 (simulated)",
-        SimulatedModel.Predator2024 => "Predator PHN16-72 (simulated)",
+        SimulatedModel.Predator2024 => "Predator PH18-71 (simulated)",
         _ => "Nitro AN515-57 (simulated)",
     };
 

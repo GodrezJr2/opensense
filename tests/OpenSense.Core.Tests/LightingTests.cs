@@ -336,6 +336,18 @@ public class LightBarBackendTests
         Assert.Empty(nitroCaps.LightBars);
         Assert.Contains("GetGamingLED(0x10) = status 2, no layout", nitroCaps.Diagnostics, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void The_helios_neo_16_phn16_72_gets_no_light_bar_even_where_its_firmware_reports_one()
+    {
+        var predator = new SimulatedMachine(SimulatedModel.Predator2024);
+        var caps = CapabilityProbe.Probe(new AcerDevice(predator.OpenFirmware()), predator.ReadSmbios(), "Predator PHN16-72");
+
+        Assert.Empty(caps.LightBars);
+        Assert.DoesNotContain(LightingLocation.InfinityMirror, caps.Lights.Select(l => l.Location));
+        Assert.True(AcerFirmwareProfile.LacksLightBars("Predator PHN16-72"));
+        Assert.False(AcerFirmwareProfile.LacksLightBars("Predator PHN16-73"));
+    }
 }
 
 public sealed class PredatorLightingIpcTests : IAsyncLifetime
