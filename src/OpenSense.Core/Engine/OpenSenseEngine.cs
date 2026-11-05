@@ -104,7 +104,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
             _ecHid = OpenOptional(() => EcHidDevice.Open(_hid), "the embedded controller's HID interface", _ => null);
             var device = Device();
 
-            _probed = DetectBootLogo(CapabilityProbe.Probe(device, _machine.ReadSmbios(), _deviceName, _machine.IsAcerServiceReachable)) with
+            _probed = DetectBootLogo(CapabilityProbe.Probe(device, _machine.ReadSmbios(), _deviceName, _machine.ReadAcpiTables(), _machine.IsAcerServiceReachable)) with
             {
                 ModeKey = Runtime.ModeKeySeen,
             };
@@ -248,7 +248,8 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
     /// The firmware through both of its interfaces (WMI, and the embedded controller's HID one where there is one), with
     /// what the model's reviewed BIOS is known to do.
     /// </summary>
-    private AcerDevice Device() => new(_transport!) { EcHid = _ecHid, FirmwareProfile = AcerFirmwareProfile.For(_deviceName, _biosVersion) };
+    private AcerDevice Device() =>
+        new(_transport!) { EcHid = _ecHid, FirmwareProfile = AcerFirmwareProfile.For(_deviceName, _biosVersion, _ecHid is not null) };
 
     /// <summary>Opens a part the engine can do without; on a failure, logs it and goes on with <paramref name="fallback"/>.</summary>
     private T OpenOptional<T>(Func<T> open, string what, Func<Exception, T> fallback)
@@ -317,12 +318,15 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
 
     private void StartControl(AcerDevice device)
     {
+        if (Runtime.GpuOverclockApplied)
+            SwitchOffGpuOverclockAfterCrash();
         var settings = Current;
         _controller = new FanControlService(device, _capabilities, _load!, _power!, settings.Profile, _sensors, knownGpuClocks: KnownGpuClocks(),
             batteryBoostSeen: Runtime.BatteryBoostSeen, competing: _machine.OpenCompetingSoftware());
         _controller.TelemetryUpdated += OnTelemetry;
         _controller.Notice += OnNotice;
         _controller.GpuClockLimitsChanged += OnGpuClockLimits;
+        _controller.GpuOverclockApplied += OnGpuOverclockApplied;
         _controller.BatteryBoostSeen += OnBatteryBoostSeen;
         _controller.Start();
 
@@ -345,6 +349,7 @@ public sealed partial class OpenSenseEngine : IOpenSenseService, IDisposable
             controller.Notice -= OnNotice;
             controller.GpuClockLimitsChanged -= OnGpuClockLimits;
             controller.Dispose(); // hands the fans back to the firmware if configured, and resets the GPU's clocks
+            controller.GpuOverclockApplied -= OnGpuOverclockApplied; // after: resetting the clocks clears it in state.json
         }
         _controller = null;
     }

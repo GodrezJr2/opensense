@@ -347,8 +347,15 @@ public sealed partial class DeviceSession : IDisposable
         engine.Start();
         _engine = engine;
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionEnded += OnSessionEnded;
         Attach(engine);
     }
+
+    /// <summary>
+    /// Windows ends this process next (shutdown, restart, sign-out): stop the engine as Quit does, so the GPU's offsets
+    /// are reset and the next start doesn't take this for a crash while overclocked.
+    /// </summary>
+    private void OnSessionEnded(object? sender, SessionEndedEventArgs e) => _engine?.Dispose();
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
@@ -544,6 +551,7 @@ public sealed partial class DeviceSession : IDisposable
         if (_engine is { } engine)
         {
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            SystemEvents.SessionEnded -= OnSessionEnded;
             engine.Dispose(); // this process owned the fans: hand them back if configured
         }
         _stopping.Dispose();

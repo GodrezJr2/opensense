@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using OpenSense.Core.Monitoring;
 
 namespace OpenSense.Core.Lighting;
 

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
@@ -382,6 +382,10 @@
   <data name="FanMode_Custom_Description" xml:space="preserve">
     <value>Ταχύτητα που προστίθεται σε αυτή του υλικολογισμικού για κάθε ανεμιστήρα, σταθερή ή σύμφωνα με καμπύλη. Το 0% αφήνει τον ανεμιστήρα στο υλικολογισμικό, το 100% είναι η μέγιστη ταχύτητα.</value>
   </data>
+  <data name="FanMode_Custom_DescriptionFixed" xml:space="preserve">
+    <value>Η ταχύτητα κάθε ανεμιστήρα, σταθερή ή σύμφωνα με καμπύλη, και μέγιστη ταχύτητα μόλις το τσιπ του πλησιάσει τη θερμοκρασία όπου αρχίζει να μειώνει τις επιδόσεις του. Το 0% αφήνει τον ανεμιστήρα στο υλικολογισμικό.</value>
+    <comment>Fan mode description on laptops whose firmware takes each fan's speed as it is (not added on top of Auto). "Throttle" = a chip slowing itself down because it is too hot.</comment>
+  </data>
   <data name="FanBehavior_Auto" xml:space="preserve">
     <value>Αυτόματο (υλικολογισμικό)</value>
     <comment>What a fan is doing right now: controlled by the laptop's firmware.</comment>
@@ -564,9 +568,17 @@
     <value>Προσθέτει ταχύτητα σε αυτή του υλικολογισμικού καθώς ζεσταίνονται τα τσιπ και φτάνει στη μέγιστη ταχύτητα στη θερμοκρασία όπου ο επεξεργαστής αρχίζει να μειώνει τις επιδόσεις του.</value>
     <comment>What the on/off setting does. "Throttle" = the processor slowing itself down because it is too hot.</comment>
   </data>
+  <data name="Fans_AutoBoostFixed" xml:space="preserve">
+    <value>Λειτουργεί τους ανεμιστήρες στη μέγιστη ταχύτητα καθώς τα τσιπ πλησιάζουν τη θερμοκρασία όπου αρχίζουν να μειώνουν τις επιδόσεις τους.</value>
+    <comment>What the Anti-throttle on/off setting does on laptops where it can only switch the fans to full speed. "Throttle" = a chip slowing itself down because it is too hot.</comment>
+  </data>
   <data name="Fans_CoolBoost.Description" xml:space="preserve">
     <value>Αυξάνει τις ταχύτητες ανεμιστήρων του ίδιου του υλικολογισμικού, τις οποίες χρησιμοποιεί η λειτουργία Αυτόματο και στις οποίες προσθέτει η λειτουργία Χειροκίνητο.</value>
     <comment>Under the header "CoolBoost" (an Acer feature name). Auto, Custom = FanMode_Auto, FanMode_Custom.</comment>
+  </data>
+  <data name="Fans_CoolBoostFixed" xml:space="preserve">
+    <value>Αυξάνει τις ταχύτητες ανεμιστήρων του ίδιου του υλικολογισμικού, τις οποίες χρησιμοποιεί η λειτουργία Αυτόματο.</value>
+    <comment>Under the header "CoolBoost" (an Acer feature name), on laptops where Custom sets each fan's speed itself. Auto = FanMode_Auto.</comment>
   </data>
   <data name="Fans_FanTable.Header" xml:space="preserve">
     <value>Καμπύλη ανεμιστήρων</value>
@@ -594,6 +606,10 @@
   <data name="Fans_Boost.Header" xml:space="preserve">
     <value>Πρόσθετη ταχύτητα</value>
     <comment>Slider label: speed added on top of the firmware's, from 0% (firmware only) to 100% (full speed).</comment>
+  </data>
+  <data name="Fans_SpeedFixed" xml:space="preserve">
+    <value>Ταχύτητα</value>
+    <comment>Slider label: a fan's own speed in Custom mode, from 0% (left to the firmware) to 100% (full speed). Short.</comment>
   </data>
   <data name="Fans_Presets.Content" xml:space="preserve">
     <value>Προεπιλογές</value>
@@ -2074,6 +2090,20 @@ GPU: {1}</value>
   <data name="Profile_CpuPower" xml:space="preserve">
     <value>Όρια επεξεργαστή: {0} W διαρκείας, {1} W σε ριπές</value>
     <comment>{0} = sustained power limit (PL1) in watts, {1} = burst limit (PL2) in watts. The unit W stays.</comment>
+  </data>
+  <data name="GpuClocks_Enabled.Header" xml:space="preserve">
+    <value>Να επιτρέπεται ο υπερχρονισμός</value>
+    <comment>Switch in the GPU overclock section; the warning dialog appears when it is turned on.</comment>
+  </data>
+  <data name="GpuClocks_Enabled.Description" xml:space="preserve">
+    <value>Οι μετατοπίσεις παρακάτω ισχύουν μόνο όσο αυτό είναι ενεργό.</value>
+  </data>
+  <data name="GpuClocks_TurnedOffAfterCrash.Title" xml:space="preserve">
+    <value>Ο υπερχρονισμός απενεργοποιήθηκε</value>
+    <comment>Warning bar above the overclocking switch, shown after OpenSense switched overclocking off at start.</comment>
+  </data>
+  <data name="GpuClocks_TurnedOffAfterCrash.Message" xml:space="preserve">
+    <value>Τα Windows σταμάτησαν χωρίς κανονικό τερματισμό ενώ η GPU ήταν υπερχρονισμένη, οπότε οι μετατοπίσεις δεν εφαρμόστηκαν ξανά. Μειώστε τις πριν επιτρέψετε ξανά τον υπερχρονισμό.</value>
   </data>
   <data name="Navigation_FailedTitle" xml:space="preserve">
     <value>Δεν ήταν δυνατό το άνοιγμα αυτής της σελίδας</value>

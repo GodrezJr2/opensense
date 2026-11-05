@@ -191,6 +191,15 @@ public sealed record DeviceCapabilities(
     public bool FanTable { get; init; }
 
     /// <summary>
+    /// A fan's Custom speed is its own speed, not a boost over Auto (<see cref="AcerFirmwareProfile.FixedFanSpeeds"/>):
+    /// OpenSense then runs a fan at full speed where it would boost it near its chip's limit.
+    /// </summary>
+    public bool FixedFanSpeeds { get; init; }
+
+    /// <summary>Where speeds are the fans' own, the lowest one sent (<see cref="AcerFirmwareProfile.MinimumFixedFanSpeed"/>).</summary>
+    public int MinimumFixedFanSpeed { get; init; }
+
+    /// <summary>
     /// The firmware answers whether the battery can help the adapter (<c>GetGamingSysInfo(0x02)</c>, or the EC HID
     /// interface). With that off the performance modes wait (see <see cref="Control.PowerLimit.LowBattery"/>), once the
     /// flag has been seen on: the NL16-71G answers a constant 0.
@@ -274,11 +283,12 @@ public static class CapabilityProbe
     /// Nothing written; nothing read from Acer's software.
     /// </summary>
     /// <param name="model">The laptop's model name, for the features Acer's software offers by model.</param>
+    /// <param name="acpiTables">The firmware's ACPI tables, for what its code does with each operating mode.</param>
     /// <param name="acerServiceReachable">
     /// Whether AcerService's local API answers, asked only where the keyboard needs it; without it, it doesn't.
     /// </param>
     public static DeviceCapabilities Probe(AcerDevice device, AcerSmbios? smbios = null, string? model = null,
-        Func<bool>? acerServiceReachable = null)
+        IReadOnlyList<AcpiTable>? acpiTables = null, Func<bool>? acerServiceReachable = null)
     {
         if (!device.IsPresent)
             return DeviceCapabilities.None;
@@ -290,7 +300,8 @@ public static class CapabilityProbe
         void Log(string text) => diag.AppendLine(text);
 
         Log($"OpenSense {typeof(CapabilityProbe).Assembly.GetName().Version} capability probe");
-        Log($"Model catalog: {catalog.ModelCode ?? "not listed"}; firmware profile: {profile.ModelCode ?? "generic"}");
+        Log($"Model catalog: {catalog.ModelCode ?? "not listed"}; firmware profile: {profile.ModelCode ?? "generic"}" +
+            (profile.Board is { } board ? $" ({board} board)" : ""));
         Log($"SMBIOS 0xAC gaming interface: {smbios.GamingVersion?.ToString("0.00", CultureInfo.InvariantCulture) ?? "absent"}; records: " +
             string.Join(" ", smbios.GamingRecords.Select(r => $"{r.Id:X2}={r.Value:X}")));
         Log("SMBIOS 0xAA hotkey functions (id/flag=value): " + string.Join(" ", smbios.HotkeyFunctions.Select(r => $"{r.Id:X2}/{r.Flag:X2}={r.Value:X}")));
@@ -378,6 +389,28 @@ public static class CapabilityProbe
             firmwareModes = decoded;
         else if (modeRaw is { } cur && IsOk(cur) && Enum.IsDefined((OperatingMode)MiscValue(cur)))
             firmwareModes = DefaultOperatingModes;
+        // A listed mode the BIOS's ACPI code doesn't act on wherever it acts on Balanced does nothing on some boards (the
+        // AN515-58's Turbo): not offered, not even when the user turns the modes on.
+        if (firmwareModes.Count > 0)
+        {
+            AcpiModeCode? modeCode = null;
+            try
+            {
+                modeCode = AcpiModeCode.Find(acpiTables ?? []);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log($"ACPI mode code: {ex.GetType().Name}: {ex.Message}");
+            }
+            Log(modeCode is null
+                ? "ACPI mode code: not found (the BIOS decides elsewhere)"
+                : $"ACPI mode code ({modeCode.Table}), places acting on each mode: {modeCode.Describe()}");
+            if (modeCode is not null && firmwareModes.Where(m => !modeCode.Handles(m)).ToList() is { Count: > 0 } idle)
+            {
+                Log($"=> not offered, the code doesn't act on them everywhere: {string.Join(", ", idle)}");
+                firmwareModes = [.. firmwareModes.Except(idle)];
+            }
+        }
         // Where misc 0x0B has none and function 7 says it is the operating mode (the NL16-71G), its modes are the ones.
         var actionModes = false;
         if (firmwareModes.Count == 0 && modeFunction)
@@ -408,12 +441,15 @@ public static class CapabilityProbe
 
         // GPU MUX switch.
         var gpuSupportRaw = device.Raw(GamingClass, "GetGamingMiscSetting", MiscGetInput(MiscSetting.GpuModeSupport));
+        var gpuModeRaw = device.Raw(GamingClass, "GetGamingMiscSetting", MiscGetInput(MiscSetting.GpuMode));
         Log($"misc GpuModeSupport raw={Hex(gpuSupportRaw)}");
-        Log($"misc GpuMode raw={Hex(device.Raw(GamingClass, "GetGamingMiscSetting", MiscGetInput(MiscSetting.GpuMode)))}");
+        Log($"misc GpuMode raw={Hex(gpuModeRaw)}");
         // A bit per mode: 1 hybrid, 2 discrete only, 4 automatic selection. The BIOSes seen answer 3 or 7. Without an
-        // answer there is no switch: the AN515-45's SMM code writes a misc 2 value into the EC's own flags.
+        // answer there is no switch: the AN515-45's SMM code writes a misc 2 value into the EC's own flags. Misc 2 must answer
+        // too, with something other than 0xFF (a setting the firmware hasn't): the ANV15-51 ZYQ's misc 9 can answer 7 while
+        // its misc 2 answers 0xFF and every write is refused.
         var gpuModes = gpuSupportRaw is { } g && IsOk(g) ? MiscValue(g) : 0;
-        var gpuSwitch = (gpuModes & 3) == 3;
+        var gpuSwitch = (gpuModes & 3) == 3 && gpuModeRaw is { } gm && IsOk(gm) && MiscValue(gm) != 0xFF;
         var gpuAutomatic = gpuSwitch && (gpuModes & 4) != 0;
 
         var coolBoost = firmwareCoolBoost && modes.Count == 0;
@@ -427,7 +463,7 @@ public static class CapabilityProbe
         var acerServiceKeyboard = !keyboard.RgbBacklight && smbios.LedArrayLength > 0 && acerServiceReachable?.Invoke() == true;
         Log($"AcerService keyboard fallback: {(keyboard.RgbBacklight ? "not needed" : acerServiceKeyboard ? "available" : "unavailable")}");
         // Brightness alone: through the backlight record, or the auto-off function's brightness, except where the reviewed
-        // BIOS has nothing behind the keyboard's WMI methods (ANV16-72: auto-off works, its brightness byte is ignored).
+        // BIOS has nothing behind the keyboard's WMI methods (ANV16-72, PH717-71: auto-off works, its brightness byte is ignored).
         if (keyboard.RgbBacklight)
             lights.Add(EcKeyboardBackend.Describe(keyboard));
         else if (acerServiceKeyboard)
@@ -495,7 +531,8 @@ public static class CapabilityProbe
 
         Log($"=> sensors: {string.Join(", ", sensors)}");
         Log($"=> fans: {string.Join(", ", fans.Select(f => f.Controllable ? f.Name : $"{f.Name} (speed only)"))}; Dust Defender: {dustDefender}; " +
-            $"fan table: {fanTable}");
+            $"fan table: {fanTable}{(profile.FixedFanSpeeds ? "; Custom speeds are the fans' own" : "")}" +
+            (profile.FixedFanSpeeds && profile.MinimumFixedFanSpeed > 0 ? $", at least {profile.MinimumFixedFanSpeed} %" : ""));
         Log($"=> operating modes: {(modes.Count == 0 ? "none" : string.Join(", ", modes))}" +
             (firmwareModes.Count == 0 ? ""
                 : ecHid is { Modes.Count: > 0 } ? " (EC HID)"
@@ -540,6 +577,8 @@ public static class CapabilityProbe
             CustomBootLogoSwitch = customBootLogoSwitch,
             DustDefender = dustDefender,
             FanTable = fanTable,
+            FixedFanSpeeds = profile.FixedFanSpeeds,
+            MinimumFixedFanSpeed = profile.FixedFanSpeeds ? profile.MinimumFixedFanSpeed : 0,
             BatteryBoostFlag = batteryBoostFlag,
             EcHid = ecHid,
             Smbios = smbios,
@@ -632,9 +671,11 @@ public static class CapabilityProbe
         var brightness = firmware.KeyboardControl == EcKeyboardControl.BrightnessOnly && backlight is { Length: >= 9 };
 
         // Backlight auto-off: the hotkey function SMBIOS names for it, else the one measured for the model, as long as
-        // the firmware answers it.
+        // the firmware answers it and the reviewed BIOS has something behind it.
         byte? hotkey = null;
-        if (!ecHidBacklight && actionClass && (smbios.BacklightHotkey ?? catalog.KeyboardTimeoutHotkey) is { } h)
+        if (firmware.WmiBacklightTimeoutSupported == false)
+            log("backlight timeout: nothing behind the firmware's function on this BIOS");
+        else if (!ecHidBacklight && actionClass && (smbios.BacklightHotkey ?? catalog.KeyboardTimeoutHotkey) is { } h)
         {
             var timeout = device.GetBacklightTimeout(h);
             log($"backlight timeout (hotkey 0x{h:X2}) = {(timeout is { } t ? $"{t.Brightness}% / {t.TimeoutSeconds}s" : "error")}");
@@ -642,11 +683,14 @@ public static class CapabilityProbe
                 hotkey = h;
         }
 
-        // Overdrive depends on the panel, so the firmware's answer counts, whatever the model.
+        // Overdrive depends on the panel, so the firmware's answer counts, whatever the model, unless the reviewed BIOS has
+        // nothing behind it.
         var profile = device.GetGamingProfile();
         log($"GetGamingProfile(0) = {(profile is { } p ? $"0x{p:X}" : "error")}");
-        var windowsKey = catalog.WindowsKeyLock != false && profile is { } wp && KeyboardProtocol.WindowsKeyValue(wp) is not null;
-        var overdrive = catalog.LcdOverdrive != false && profile is { } op && KeyboardProtocol.LcdOverdriveSupported(op);
+        var windowsKey = catalog.WindowsKeyLock != false && firmware.WmiWindowsKeySupported != false
+            && profile is { } wp && KeyboardProtocol.WindowsKeyValue(wp) is not null;
+        var overdrive = catalog.LcdOverdrive != false && firmware.WmiLcdOverdriveSupported != false
+            && profile is { } op && KeyboardProtocol.LcdOverdriveSupported(op);
 
         // Which zones are lit, each zone's colour (their raw answers, for keyboards whose zones misbehave), and Fn lock:
         // asked only where they are used.

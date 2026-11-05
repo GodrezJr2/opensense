@@ -11,7 +11,8 @@ namespace OpenSense.Core.Control;
 /// Owns the firmware: polls sensors, applies the user's <see cref="ControlProfile"/>, runs fan curves
 /// and enforces safety rules. All WMI traffic happens on its single worker thread.
 /// Fan speeds are boosts on top of the firmware's Auto (see <see cref="AcerProtocol.FanSpeedInput"/>), sent in the
-/// firmware's steps of <see cref="AcerProtocol.FanSpeedStep"/> %.
+/// firmware's steps of <see cref="AcerProtocol.FanSpeedStep"/> %. Where they are the fans' own speeds instead
+/// (<see cref="DeviceCapabilities.FixedFanSpeeds"/>), a fan goes to full speed wherever Anti-throttle would boost it.
 /// </summary>
 public sealed class FanControlService : IDeviceDispatcher, IDisposable
 {
@@ -61,6 +62,9 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _started;
     private readonly Dictionary<FanId, CurveFollower> _followers = new();
+
+    // Anti-throttle's curve in Custom, where speeds are the fans' own: past its start a fan runs at full speed.
+    private readonly Dictionary<FanId, CurveFollower> _limitFollowers = new();
     private readonly List<DateTime> _reapplyAt = [];
     private readonly object _gate = new();
 
@@ -150,7 +154,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         _clock = clock ?? (() => DateTime.UtcNow);
         _controllable = capabilities.ControllableFans;
         foreach (var fan in _controllable)
+        {
             _followers[fan.Id] = new CurveFollower();
+            _limitFollowers[fan.Id] = new CurveFollower();
+        }
         if (_direct.CpuPowerControl is { } cpuPower)
             _cpuPower = new CpuPowerController(cpuPower);
         if (_direct.GpuClocks is { } gpuClocks)
@@ -158,6 +165,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             _gpuClocks = new GpuClockController(gpuClocks, knownGpuClocks);
             _gpuClocks.LimitsChanged += limits => GpuClockLimitsChanged?.Invoke(limits);
             _gpuClocks.Refused += () => Notice?.Invoke(new ControlNotice(NoticeKind.GpuClocksRejected));
+            _gpuClocks.OwnedChanged += applied => GpuOverclockApplied?.Invoke(applied);
         }
         _thread = new Thread(Run) { IsBackground = true, Name = "OpenSense control loop" };
     }
@@ -169,9 +177,6 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
     public Telemetry? Latest { get; private set; }
 
-    /// <summary>Where the loop's time goes, for the diagnostics.</summary>
-    internal LoopTimings Timings { get; } = new();
-
     /// <summary>Raised on the control thread after every sample.</summary>
     public event Action<Telemetry>? TelemetryUpdated;
 
@@ -180,6 +185,12 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
     /// <summary>Raised on the control thread when the GPU's driver reports new clock offset limits (null: it has none).</summary>
     public event Action<GpuClockLimits?>? GpuClockLimitsChanged;
+
+    /// <summary>
+    /// Raised on the control thread when OpenSense's GPU clock offsets go into the driver (true) or are put back to 0
+    /// (false, also when the loop stops), for state.json to remember.
+    /// </summary>
+    public event Action<bool>? GpuOverclockApplied;
 
     /// <summary>Raised on the control thread the first time the battery-boost flag is seen on, for state.json to remember.</summary>
     public event Action? BatteryBoostSeen;
@@ -384,12 +395,11 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             if (_stopping)
                 job.Reject();
             else
-                Timings.Time(LoopPart.Requests, job.Run);
+                job.Run();
         }
         if (_stopping)
             return;
 
-        var step = Stopwatch.GetTimestamp();
         var now = _clock();
         var reapply = false;
         lock (_reapplyAt)
@@ -408,7 +418,6 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             Sample();
             _lastSample = now;
         }
-        var control = Stopwatch.GetTimestamp();
         var onAc = _power.Read().OnAc;
         _limit = ReadPowerLimit(now, onAc);
 
@@ -423,7 +432,6 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             (_cpuThrottle & (CpuThrottleReason.Thermal | CpuThrottleReason.Prochot | CpuThrottleReason.Critical)) != 0, _limits.Cpu, now);
         TrackDustDefender(now);
         var (effective, fanLock, boosting) = ApplyFans(profile, now, reapply);
-        Timings.Add(LoopPart.Control, control);
 
         var telemetry = new Telemetry
         {
@@ -471,14 +479,13 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             DustDefenderRunning = Capabilities.DustDefender ? _dustSince is not null : null,
         };
         Latest = telemetry;
-        Timings.Time(LoopPart.Telemetry, () => TelemetryUpdated?.Invoke(telemetry));
-        Timings.AddStep(step);
+        TelemetryUpdated?.Invoke(telemetry);
     }
 
     private void Sample()
     {
         // Prefer the chips' own sensors; the embedded controller's copy lags and is rounded.
-        var cpu = Timings.Time(LoopPart.CpuSensor, _direct.ReadCpu);
+        var cpu = _direct.ReadCpu();
         _cpuOrigin = cpu is null ? TemperatureOrigin.Firmware : TemperatureOrigin.Processor;
         _cpuTemp = cpu ?? SensorReadings.Temperature(Capabilities.Has(SensorId.CpuTemperature) ? ReadFirmwareSensor(SensorId.CpuTemperature) : null);
         _cpuWatts = Optional(() => _direct.CpuWatts?.Read());
@@ -494,10 +501,10 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             var g = SensorReadings.Temperature(rawGpu);
             // Is the discrete GPU on? Windows knows where it powers the GPU down itself. The firmware reads 0 while
             // the GPU is off, but after a resume from sleep it can go on reading 0 with the GPU back on (AN515-57).
-            var on = Timings.Time(LoopPart.GpuPowerState, _direct.ReadGpuPower) ?? (g is not null ? true : rawGpu == 0 ? false : (bool?)null);
+            var on = _direct.ReadGpuPower() ?? (g is not null ? true : rawGpu == 0 ? false : (bool?)null);
             _gpuOn = on;
             // Asking the driver while the GPU is off could wake it.
-            var gpu = on == true ? Timings.Time(LoopPart.GpuDriver, _direct.ReadGpu) : null;
+            var gpu = on == true ? _direct.ReadGpu() : null;
             _gpuWatts = on == true ? Optional(() => _direct.GpuWatts?.Read()) : null;
             _gpuStatus = on == true ? Optional(() => _direct.GpuStatusSensor?.Read()) : null;
             _gpuMax = _gpuStatus?.MaxPowerLimitWatts ?? _gpuMax;
@@ -527,7 +534,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
 
         try
         {
-            (_cpuLoad, _gpuLoad) = Timings.Time(LoopPart.LoadCounters, _load.Sample);
+            (_cpuLoad, _gpuLoad) = _load.Sample();
             _cpuClock = _load.CpuFrequencyMhz;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -537,7 +544,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
     }
 
     /// <summary>One of the firmware's sensors, over Acer's WMI interface.</summary>
-    private int? ReadFirmwareSensor(SensorId id) => Timings.Time(LoopPart.FirmwareSensors, () => _device.ReadSensor(id));
+    private int? ReadFirmwareSensor(SensorId id) => _device.ReadSensor(id);
 
     /// <summary>An optional reading from a chip's own sensor: one that throws is no reading, and the control step goes on.</summary>
     private static T? Optional<T>(Func<T?> read)
@@ -812,7 +819,7 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         // Curves step every CurveInterval, and at once when the profile or the mode changes.
         if (effective != _curveMode)
         {
-            foreach (var follower in _followers.Values)
+            foreach (var follower in _followers.Values.Concat(_limitFollowers.Values))
                 follower.Reset();
         }
         var curveStep = now - _lastCurveStep >= CurveInterval * 0.9 || effective != _curveMode || !ReferenceEquals(profile, _curveProfile);
@@ -826,18 +833,37 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
             _curveMode = effective;
         }
         var assert = reapply || (now - _lastAssert >= ReassertInterval && targets.Values.Any(t => t.Behavior == FanBehavior.Custom));
+        var behaviorDue = _appliedBehavior is null || assert || targets.Any(t => _appliedBehavior.GetValueOrDefault(t.Key) != t.Value.Behavior);
 
-        if (_appliedBehavior is null || assert || targets.Any(t => _appliedBehavior.GetValueOrDefault(t.Key) != t.Value.Behavior))
+        // Where speeds are the fans' own, Custom runs a fan at the last speed set (none after a start: stopped), and setting
+        // one acts at once: the speeds go first.
+        var fixedSpeeds = Capabilities.FixedFanSpeeds;
+        if (fixedSpeeds)
+            ApplyFanSpeeds(targets, behaviorDue);
+
+        if (behaviorDue)
         {
             if (_controllable.Count > 0 &&
                 _device.SetFanBehavior(_controllable.Select(f => (f, targets[f.Id].Behavior)).ToArray()))
             {
                 _appliedBehavior = targets.ToDictionary(t => t.Key, t => t.Value.Behavior);
-                _appliedPercent.Clear();
+                if (!fixedSpeeds)
+                    _appliedPercent.Clear();
                 _touchedFans = true;
             }
         }
 
+        if (!fixedSpeeds)
+            ApplyFanSpeeds(targets, assert);
+
+        if (assert)
+            _lastAssert = now;
+        return (effective, fanLock, boosting);
+    }
+
+    /// <summary>Sends each fan on Custom its speed, when it changed or <paramref name="force"/>.</summary>
+    private void ApplyFanSpeeds(Dictionary<FanId, (FanBehavior Behavior, int? Percent)> targets, bool force)
+    {
         foreach (var fan in _controllable)
         {
             var (behavior, percent) = targets[fan.Id];
@@ -846,15 +872,11 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
                 _appliedPercent.Remove(fan.Id);
                 continue;
             }
-            if (!assert && _appliedPercent.TryGetValue(fan.Id, out var sent) && sent == pct)
+            if (!force && _appliedPercent.TryGetValue(fan.Id, out var sent) && sent == pct)
                 continue;
             if (_device.SetFanSpeed(fan, pct))
                 _appliedPercent[fan.Id] = pct;
         }
-
-        if (assert)
-            _lastAssert = now;
-        return (effective, fanLock, boosting);
     }
 
     private (FanBehavior Behavior, int? Percent) Target(FanChannel fan, FanControlMode mode, bool boosting, ControlProfile profile, bool curveStep)
@@ -882,13 +904,23 @@ public sealed class FanControlService : IDeviceDispatcher, IDisposable
         // The firmware only boosts in tens: send the nearest one it does, not one it would round down.
         percent = AcerProtocol.NearestFanSpeed(percent);
 
+        // Where speeds are the fans' own, a part of full speed could be slower than Auto: Anti-throttle goes to full speed
+        // instead, and so does Custom once the chip is as hot as Anti-throttle would boost at.
+        if (Capabilities.FixedFanSpeeds && (mode == FanControlMode.Auto ? percent
+                : AcerProtocol.NearestFanSpeed(FollowCurve(fan, AntiThrottle.For(fan.Chip, _limits), curveStep, _limitFollowers[fan.Id]))) > 0)
+            return (FanBehavior.Max, null);
+
+        // A lower duty could leave a fan stopped, and nothing in such firmware speeds it up again.
+        if (Capabilities.FixedFanSpeeds && percent > 0)
+            percent = Math.Max(percent, Capabilities.MinimumFixedFanSpeed);
+
         // A boost of 0 % is exactly Auto: leave the fan on the firmware's own behaviour then.
         return percent > 0 ? (FanBehavior.Custom, percent) : (FanBehavior.Auto, null);
     }
 
-    private int FollowCurve(FanChannel fan, FanCurve curve, bool curveStep)
+    private int FollowCurve(FanChannel fan, FanCurve curve, bool curveStep, CurveFollower? follower = null)
     {
-        var follower = _followers[fan.Id];
+        follower ??= _followers[fan.Id];
         if (!curveStep && follower.Current is { } held)
             return held;
         var temperature = _curveTemps.TryGetValue(fan.Id, out var sum) && sum.Count > 0 ? sum.Sum / sum.Count : CurveTemperature(fan.Chip);

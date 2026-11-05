@@ -46,6 +46,9 @@ public interface IMachine
     /// <summary>PredatorSense and NitroSense, as running programs; null where a machine has no such software to look for.</summary>
     ICompetingSoftware? OpenCompetingSoftware() => null;
 
+    /// <summary>The firmware's ACPI tables; empty where Windows doesn't give them.</summary>
+    IReadOnlyList<AcpiTable> ReadAcpiTables();
+
     ILoadMonitor OpenLoadMonitor();
 
     /// <summary>The CPU's and GPU's own temperature sensors, where available.</summary>
@@ -84,6 +87,8 @@ public sealed class WindowsMachine : IMachine
     public bool IsAcerServiceReachable() => AcerServiceTransport.IsAvailable();
 
     public ICompetingSoftware? OpenCompetingSoftware() => new WindowsCompetingSoftware();
+
+    public IReadOnlyList<AcpiTable> ReadAcpiTables() => AcpiTable.ReadAll();
 
     public ILoadMonitor OpenLoadMonitor() => new LoadMonitor();
 

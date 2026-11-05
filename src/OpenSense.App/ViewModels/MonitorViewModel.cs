@@ -208,6 +208,8 @@ public sealed partial class MonitorViewModel : ObservableObject
             fan.BehaviorText = reading?.Behavior switch
             {
                 FanBehavior.Max => Strings.Get("FanBehavior_Max"),
+                // Where Custom speeds are the fans' own, nothing is added to Auto.
+                FanBehavior.Custom when reading.BoostPercent is { } speed && _session.Capabilities.FixedFanSpeeds => Units.Percent(speed),
                 FanBehavior.Custom when reading.BoostPercent is { } boost => Strings.Format("FanBehavior_Boost", Units.Percent(boost)),
                 _ => Strings.Get("FanBehavior_Auto"),
             };
